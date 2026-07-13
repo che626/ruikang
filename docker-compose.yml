@@ -1,0 +1,77 @@
+services:
+  ruikang-mysql:
+    image: mysql:8.4
+    container_name: ruikang-mysql
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: "${MYSQL_ROOT_PASSWORD:?set MYSQL_ROOT_PASSWORD in .env}"
+      MYSQL_DATABASE: ruikang_fabric_qc
+      MYSQL_USER: ruikang
+      MYSQL_PASSWORD: "${MYSQL_PASSWORD:?set MYSQL_PASSWORD in .env}"
+      TZ: Asia/Shanghai
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --default-time-zone=+08:00
+    expose:
+      - "3306"
+    volumes:
+      - ./mysql/data:/var/lib/mysql
+      - ./mysql/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$${MYSQL_ROOT_PASSWORD} --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    mem_limit: 700m
+    cpus: 1.0
+
+  ruikang-backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: ruikang-backend
+    restart: always
+    depends_on:
+      ruikang-mysql:
+        condition: service_healthy
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      SERVER_PORT: 8080
+      MYSQL_HOST: ruikang-mysql
+      MYSQL_PORT: 3306
+      MYSQL_DATABASE: ruikang_fabric_qc
+      MYSQL_USER: ruikang
+      MYSQL_USERNAME: ruikang
+      MYSQL_PASSWORD: "${MYSQL_PASSWORD:?set MYSQL_PASSWORD in .env}"
+      SPRING_DATASOURCE_URL: jdbc:mysql://ruikang-mysql:3306/ruikang_fabric_qc?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false
+      SPRING_DATASOURCE_USERNAME: ruikang
+      SPRING_DATASOURCE_PASSWORD: "${MYSQL_PASSWORD:?set MYSQL_PASSWORD in .env}"
+      QC_STORAGE_ROOT: /app/uploads
+      QC_MODEL_PATH: models/ruikang.onnx
+      QC_INFERENCE_PREFER_GPU: "false"
+      QC_ADMIN_USERNAME: ${QC_ADMIN_USERNAME:-admin}
+      QC_ADMIN_PASSWORD: "${QC_ADMIN_PASSWORD:?set QC_ADMIN_PASSWORD in .env}"
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      DEEPSEEK_MODEL: ${DEEPSEEK_MODEL:-deepseek-v4-pro}
+      TZ: Asia/Shanghai
+    expose:
+      - "8080"
+    volumes:
+      - ./uploads:/app/uploads
+      - ./backend/models:/app/models:ro
+    mem_limit: 700m
+    cpus: 1.0
+
+  ruikang-frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: ruikang-frontend
+    restart: always
+    depends_on:
+      - ruikang-backend
+    ports:
+      - "127.0.0.1:20080:80"
+    mem_limit: 128m
+    cpus: 0.5

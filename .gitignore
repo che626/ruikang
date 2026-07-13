@@ -1,0 +1,33 @@
+# IDE and local agent settings
+.idea/
+.run/
+.claude/
+.runtime/
+
+# Dependencies and build outputs
+frontend/node_modules/
+frontend/dist/
+backend/target/
+
+# Runtime data
+backend/data/
+data/
+mysql/data/
+uploads/
+*.mv.db
+*.trace.db
+*.log
+*.pid
+
+# Local secrets
+.env
+.env.*
+!.env.example
+
+# Competition materials and one-off document generators
+docs/
+tools/
+
+# OS files
+.DS_Store
+Thumbs.db

@@ -1,0 +1,32 @@
+path: .
+train: images/train
+val: images/val
+test: images/val
+nc: 6
+names:
+  0: Oil_stain
+  1: Ink_stain
+  2: Hole
+  3: Broken_yarn
+  4: Wrinkle
+  5: Foreign_matter
+
+# 针对性数据增强配置
+augment:
+  # 指定需要增强的类别索引
+  classes: [0, 3, 4]
+
+  # 增强参数
+  degrees: 15.0        # 旋转角度范围（-15°到15°）
+  translate: 0.2       # 平移范围（-20%到20%）
+  scale: 0.5           # 缩放范围（0.5x到1.5x）
+  shear: 10.0          # 剪切角度
+  perspective: 0.001   # 透视变换程度
+  flipud: 0.5          # 上下翻转概率
+  fliplr: 0.5          # 左右翻转概率
+  mosaic: 1.0          # 开启Mosaic增强
+  mixup: 0.2           # Mixup混合增强概率
+  brightness: 0.2      # 亮度调整范围
+  contrast: 0.2        # 对比度调整范围
+  saturation: 0.2      # 饱和度调整范围
+  hue: 0.1             # 色调调整范围

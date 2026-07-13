@@ -1,0 +1,13 @@
+.git
+.idea
+.claude
+.runtime
+**/target
+**/node_modules
+**/dist
+data
+backend/data
+mysql/data
+uploads
+*.log
+*.pid

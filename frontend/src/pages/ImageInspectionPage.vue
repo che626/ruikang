@@ -1,0 +1,230 @@
+<script setup lang="ts">
+import { computed, onBeforeUnmount, ref } from "vue";
+import { message } from "ant-design-vue";
+import type { UploadProps } from "ant-design-vue";
+import { uploadAndInspectImages, type ImageInspectionRecord, type ImageInspectionUploadResult } from "@/api/image-inspection";
+
+type SelectedImage = {
+  uid: string;
+  name: string;
+  file: File;
+  url: string;
+};
+
+const selectedImages = ref<SelectedImage[]>([]);
+const loading = ref(false);
+const lastResult = ref<ImageInspectionUploadResult | null>(null);
+const selectedRecordNo = ref("");
+
+const currentRecord = computed(() =>
+  lastResult.value?.records.find((item) => item.recordNo === selectedRecordNo.value) ?? lastResult.value?.records[0] ?? null,
+);
+
+const beforeUpload: UploadProps["beforeUpload"] = (file) => {
+  const rawFile = file as unknown as File;
+  const uid = "uid" in file ? String(file.uid) : `${file.name}-${Date.now()}`;
+  selectedImages.value = [
+    ...selectedImages.value,
+    {
+      uid,
+      name: file.name,
+      file: rawFile,
+      url: URL.createObjectURL(rawFile),
+    },
+  ];
+  return false;
+};
+
+function removeSelected(uid: string) {
+  const target = selectedImages.value.find((item) => item.uid === uid);
+  if (target) URL.revokeObjectURL(target.url);
+  selectedImages.value = selectedImages.value.filter((item) => item.uid !== uid);
+}
+
+function clearSelected() {
+  selectedImages.value.forEach((item) => URL.revokeObjectURL(item.url));
+  selectedImages.value = [];
+}
+
+async function runInspection() {
+  if (!selectedImages.value.length) {
+    message.warning("请先选择至少一张图片");
+    return;
+  }
+
+  loading.value = true;
+  try {
+    const result = await uploadAndInspectImages(selectedImages.value.map((item) => item.file), "");
+    lastResult.value = result;
+    selectedRecordNo.value = result.records[0]?.recordNo ?? "";
+    message.success(`图片质检完成，共处理 ${result.fileCount} 张图片`);
+  } catch (error) {
+    message.error(error instanceof Error ? error.message : "图片质检失败");
+  } finally {
+    loading.value = false;
+  }
+}
+
+function filePreviewUrl(relativePath: string | null) {
+  return relativePath ? `/api/files/content?relativePath=${encodeURIComponent(relativePath)}` : "";
+}
+
+function confidenceText(record: ImageInspectionRecord) {
+  return record.confidenceScore == null ? "-" : record.confidenceScore.toFixed(3);
+}
+
+function reviewText(status: string, resultJudge = "FAIL") {
+  if (resultJudge === "PASS") return "正常";
+  return status === "FALSE_ALARM" ? "误报" : "真实缺陷";
+}
+
+onBeforeUnmount(clearSelected);
+</script>
+
+<template>
+  <section class="workbench-grid image-inspection-grid">
+    <article class="card panel-column">
+      <div class="card-head">
+        <div>
+          <span>上传入口</span>
+          <h3>图片质检任务</h3>
+        </div>
+        <em>UPLOAD</em>
+      </div>
+
+      <a-upload-dragger :multiple="true" :show-upload-list="false" :before-upload="beforeUpload">
+        <p class="ant-upload-drag-icon">+</p>
+        <p class="ant-upload-text">拖拽图片到这里，或点击选择文件</p>
+        <p class="ant-upload-hint">支持 JPG / PNG，建议单次不超过 10 张</p>
+      </a-upload-dragger>
+
+      <div class="upload-preview-box fixed-upload-preview">
+        <div class="upload-preview-head">
+          <span>已上传图片</span>
+          <strong>{{ selectedImages.length }} 张</strong>
+        </div>
+        <div v-if="selectedImages.length" class="upload-preview-grid upload-preview-scroll">
+          <figure v-for="item in selectedImages" :key="item.uid" class="uploaded-image-card">
+            <img :src="item.url" :alt="item.name" />
+            <figcaption>
+              <span>{{ item.name }}</span>
+              <button type="button" @click="removeSelected(item.uid)">移除</button>
+            </figcaption>
+          </figure>
+        </div>
+        <div v-else class="upload-preview-empty">选择图片后会显示在这里。</div>
+      </div>
+
+      <div class="button-row">
+        <a-button type="primary" :loading="loading" @click="runInspection">开始质检</a-button>
+        <a-button @click="clearSelected">清空图片</a-button>
+      </div>
+
+      <div v-if="lastResult" class="summary-strip">
+        <div>
+          <span>任务编号</span>
+          <strong>{{ lastResult.taskNo }}</strong>
+        </div>
+        <div>
+          <span>状态</span>
+          <strong>{{ lastResult.taskStatus }}</strong>
+        </div>
+        <div>
+          <span>文件数</span>
+          <strong>{{ lastResult.fileCount }}</strong>
+        </div>
+      </div>
+    </article>
+
+    <article class="card panel-column">
+      <div class="card-head">
+        <div>
+          <span>检测结果</span>
+          <h3>结果图</h3>
+        </div>
+        <em>{{ currentRecord?.resultJudge ?? "READY" }}</em>
+      </div>
+
+      <div v-if="currentRecord?.resultImagePath" class="image-result-single inspection-image-stage">
+        <img :src="filePreviewUrl(currentRecord.resultImagePath)" alt="结果图" />
+      </div>
+      <div v-else class="empty-card">上传并运行图片质检后，这里会显示结果图。</div>
+    </article>
+
+    <article class="card panel-column">
+      <div class="card-head">
+        <div>
+          <span>记录列表</span>
+          <h3>本次结果</h3>
+        </div>
+        <em>{{ lastResult?.records.length ?? 0 }} 条</em>
+      </div>
+
+      <div v-if="lastResult?.records.length" class="record-stack inspection-result-scroll">
+        <button
+          v-for="record in lastResult.records"
+          :key="record.recordNo"
+          :class="['record-button', { active: record.recordNo === currentRecord?.recordNo }]"
+          @click="selectedRecordNo = record.recordNo"
+        >
+          <strong>{{ record.recordNo }}</strong>
+          <span>{{ record.resultJudge }} / {{ record.resultSummary }}</span>
+        </button>
+      </div>
+      <div v-else class="empty-card compact-empty">暂无本次检测结果。</div>
+    </article>
+
+    <article class="card panel-column">
+      <div class="card-head">
+        <div>
+          <span>结果摘要</span>
+          <h3>检测详情</h3>
+        </div>
+        <em>DETAIL</em>
+      </div>
+
+      <template v-if="currentRecord">
+        <div class="detail-grid">
+          <div class="summary-item">
+            <span>缺陷数量</span>
+            <strong>{{ currentRecord.defectCount }}</strong>
+          </div>
+          <div class="summary-item">
+            <span>最高置信度</span>
+            <strong>{{ confidenceText(currentRecord) }}</strong>
+          </div>
+          <div class="summary-item">
+            <span>复核状态</span>
+            <strong>{{ reviewText(currentRecord.reviewStatus, currentRecord.resultJudge) }}</strong>
+          </div>
+          <div class="summary-item">
+            <span>推理耗时</span>
+            <strong>{{ currentRecord.inferenceTimeMs ?? 0 }} ms</strong>
+          </div>
+        </div>
+
+        <div class="detection-table">
+          <a-table
+            :pagination="false"
+            size="small"
+            :data-source="currentRecord.detections"
+            :row-key="(row) => `${row.defectCode}-${row.x1}-${row.y1}`"
+          >
+            <a-table-column title="类别" data-index="defectName" key="defectName" />
+            <a-table-column title="置信度" key="confidence">
+              <template #default="{ record }">
+                {{ record.confidence.toFixed(3) }}
+              </template>
+            </a-table-column>
+            <a-table-column title="框坐标" key="box">
+              <template #default="{ record }">
+                {{ record.x1 }},{{ record.y1 }},{{ record.x2 }},{{ record.y2 }}
+              </template>
+            </a-table-column>
+          </a-table>
+        </div>
+      </template>
+      <div v-else class="empty-card">暂无检测摘要。</div>
+    </article>
+  </section>
+</template>
