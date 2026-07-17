@@ -23,13 +23,31 @@ export interface ImageInspectionUploadResult {
   records: ImageInspectionRecord[];
 }
 
-export async function uploadAndInspectImages(files: File[], remark: string): Promise<ImageInspectionUploadResult> {
-  const formData = new FormData();
-  files.forEach((file) => formData.append("files", file));
-  formData.append("remark", remark);
-  return unwrap<ImageInspectionUploadResult>(http.post("/inspection/image/tasks/upload", formData));
+export interface ClientImageInspectionRecordPayload {
+  originalFileName: string;
+  imageWidth: number;
+  imageHeight: number;
+  preprocessTimeMs: number;
+  inferenceTimeMs: number;
+  postprocessTimeMs: number;
+  providerStrategy: string;
+  detections: DetectionItem[];
 }
 
-export function fetchTaskRecords(taskNo: string): Promise<ImageInspectionRecord[]> {
-  return unwrap<ImageInspectionRecord[]>(http.get(`/inspection/image/tasks/${taskNo}/records`));
+export async function submitClientImageResults(
+  modelSha256: string,
+  records: ClientImageInspectionRecordPayload[],
+  sourceFiles: File[],
+  resultFiles: File[],
+  remark: string,
+): Promise<ImageInspectionUploadResult> {
+  const formData = new FormData();
+  formData.append(
+    "payload",
+    new Blob([JSON.stringify({ modelSha256, remark, records })], { type: "application/json" }),
+    "payload.json",
+  );
+  sourceFiles.forEach((file) => formData.append("sourceFiles", file));
+  resultFiles.forEach((file) => formData.append("resultFiles", file));
+  return unwrap<ImageInspectionUploadResult>(http.post("/inspection/image/tasks/client-results", formData));
 }

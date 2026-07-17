@@ -1,14 +1,16 @@
 package com.ruikang.qc.service;
 
+import com.ruikang.qc.dto.inference.ClientImageInspectionRequest;
+import com.ruikang.qc.dto.inference.ClientImageResultRequest;
 import com.ruikang.qc.dto.inspection.DetectionResultResponse;
 import com.ruikang.qc.dto.inspection.ImageInspectionRecordResponse;
 import com.ruikang.qc.dto.inspection.ImageInspectionTaskResponse;
 import com.ruikang.qc.dto.inspection.ImageInspectionUploadResponse;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
-import javax.imageio.ImageIO;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -28,25 +30,29 @@ public class ImageInspectionTaskService {
 
     private final JdbcTemplate jdbcTemplate;
     private final StoragePathService storagePathService;
-    private final OnnxImageInspectionService onnxImageInspectionService;
     private final CatalogService catalogService;
+    private final ClientInferenceResultValidator resultValidator;
 
     public ImageInspectionTaskService(
             JdbcTemplate jdbcTemplate,
             StoragePathService storagePathService,
-            OnnxImageInspectionService onnxImageInspectionService,
-            CatalogService catalogService
+            CatalogService catalogService,
+            ClientInferenceResultValidator resultValidator
     ) {
         this.jdbcTemplate = jdbcTemplate;
         this.storagePathService = storagePathService;
-        this.onnxImageInspectionService = onnxImageInspectionService;
         this.catalogService = catalogService;
+        this.resultValidator = resultValidator;
     }
 
-    public ImageInspectionUploadResponse uploadAndInspect(List<MultipartFile> files, String remark) {
-        if (files == null || files.isEmpty()) {
-            throw new IllegalArgumentException("至少上传一张图片");
-        }
+    @Transactional
+    public ImageInspectionUploadResponse acceptClientResults(
+            ClientImageInspectionRequest payload,
+            List<MultipartFile> sourceFiles,
+            List<MultipartFile> resultFiles
+    ) {
+        resultValidator.validateModelHash(payload.modelSha256());
+        validateFileLists(payload.records(), sourceFiles, resultFiles);
 
         String taskNo = "IMG-" + LocalDateTime.now().format(TASK_FORMAT) + randomSuffix();
         Long modelId = catalogService.getActiveModelId();
@@ -58,45 +64,39 @@ public class ImageInspectionTaskService {
                     total_image_count, processed_image_count, start_time, remark
                 )
                 VALUES (?, ?, 'image', ?, ?, 'RUNNING', ?, 0, CURRENT_TIMESTAMP, ?)
-                """, taskNo, "图片质检任务-" + taskNo, cameraId, modelId, files.size(), remark);
+                """,
+                taskNo,
+                "图片质检任务-" + taskNo,
+                cameraId,
+                modelId,
+                payload.records().size(),
+                payload.remark()
+        );
 
         Long taskId = queryTaskId(taskNo);
-        List<ImageInspectionRecordResponse> recordResponses = new ArrayList<>();
-
+        List<ImageInspectionRecordResponse> responses = new ArrayList<>();
         int totalDefectCount = 0;
-        int processedCount = 0;
-        for (MultipartFile file : files) {
-            if (file.isEmpty()) {
-                continue;
-            }
-            String safeName = sanitizeFilename(file.getOriginalFilename());
-            String datePath = LocalDate.now().format(DATE_PATH_FORMAT);
-            String sourceRelativePath = "image/" + datePath + "/" + taskNo + "/source/" + safeName;
-            Path sourcePath = storagePathService.resolveAndEnsureParent(sourceRelativePath);
-            try {
-                file.transferTo(sourcePath);
-            } catch (IOException exception) {
-                throw new IllegalStateException("保存原图失败: " + safeName, exception);
-            }
 
-            InferenceModels.InferenceOutput output = onnxImageInspectionService.inspect(sourcePath);
+        for (int index = 0; index < payload.records().size(); index++) {
+            ClientImageResultRequest clientResult = payload.records().get(index);
+            MultipartFile sourceFile = sourceFiles.get(index);
+            MultipartFile resultFile = resultFiles.get(index);
+            List<ClientInferenceResultValidator.ValidatedDetection> detections = resultValidator.validateDetections(
+                    clientResult.detections(),
+                    clientResult.imageWidth(),
+                    clientResult.imageHeight()
+            );
 
-            String baseName = stripExtension(safeName);
-            String resultFileName = baseName + "-result.png";
-            String resultRelativePath = "image/" + datePath + "/" + taskNo + "/result/" + resultFileName;
-            Path resultPath = storagePathService.resolveAndEnsureParent(resultRelativePath);
-            try {
-                ImageIO.write(output.resultImage(), "png", resultPath.toFile());
-            } catch (IOException exception) {
-                throw new IllegalStateException("保存结果图失败: " + resultFileName, exception);
-            }
-
+            StoredImagePair storedFiles = storeImagePair(taskNo, index, clientResult, sourceFile, resultFile);
             String recordNo = "REC-" + LocalDateTime.now().format(TASK_FORMAT) + randomSuffix();
-            String resultJudge = output.detections().isEmpty() ? "PASS" : "FAIL";
-            String resultSummary = output.detections().isEmpty()
+            String resultJudge = detections.isEmpty() ? "PASS" : "FAIL";
+            String resultSummary = detections.isEmpty()
                     ? "未检测到缺陷"
-                    : "检测到 " + output.detections().size() + " 个缺陷";
-            Double topConfidence = output.detections().isEmpty() ? null : output.detections().get(0).confidence();
+                    : "检测到 " + detections.size() + " 个缺陷";
+            Double topConfidence = detections.stream()
+                    .map(ClientInferenceResultValidator.ValidatedDetection::confidence)
+                    .max(Double::compareTo)
+                    .orElse(null);
 
             jdbcTemplate.update("""
                     INSERT INTO qc_record (
@@ -112,90 +112,42 @@ public class ImageInspectionTaskService {
                     modelId,
                     resultJudge,
                     topConfidence,
-                    output.detections().size(),
+                    detections.size(),
                     resultSummary,
-                    output.inferenceTimeMs(),
-                    output.preprocessTimeMs(),
-                    output.postprocessTimeMs()
+                    clientResult.inferenceTimeMs(),
+                    clientResult.preprocessTimeMs(),
+                    clientResult.postprocessTimeMs()
             );
 
             Long recordId = queryRecordId(recordNo);
+            persistFile(taskId, recordId, "source_image", storedFiles.sourceFileName(), storedFiles.sourcePath(),
+                    sourceFile.getContentType(), storedFiles.sourceSize(), clientResult.imageWidth(), clientResult.imageHeight(), null);
+            persistFile(taskId, recordId, "result_image", storedFiles.resultFileName(), storedFiles.resultPath(),
+                    resultFile.getContentType(), storedFiles.resultSize(), clientResult.imageWidth(), clientResult.imageHeight(), null);
 
-            persistFile(taskId, recordId, "source_image", safeName, sourceRelativePath, file.getContentType(), file.getSize(), output.imageWidth(), output.imageHeight(), null);
-            persistFile(taskId, recordId, "result_image", resultFileName, resultRelativePath, "image/png", FilesExistsSize(resultPath), output.imageWidth(), output.imageHeight(), null);
-
-            List<DetectionResultResponse> detectionResponses = new ArrayList<>();
-            for (InferenceModels.Detection detection : output.detections()) {
-                Long defectTypeId = queryDefectTypeId(detection.defectCode());
-                jdbcTemplate.update("""
-                        INSERT INTO qc_defect_result (
-                            record_id, defect_type_id, defect_code, defect_name, confidence,
-                            x1, y1, x2, y2, box_width, box_height, area, image_width, image_height
-                        )
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        """,
-                        recordId,
-                        defectTypeId,
-                        detection.defectCode(),
-                        detection.defectName(),
-                        detection.confidence(),
-                        detection.x1(),
-                        detection.y1(),
-                        detection.x2(),
-                        detection.y2(),
-                        detection.width(),
-                        detection.height(),
-                        detection.area(),
-                        output.imageWidth(),
-                        output.imageHeight()
-                );
-                detectionResponses.add(new DetectionResultResponse(
-                        detection.defectCode(),
-                        detection.defectName(),
-                        detection.displayColor(),
-                        detection.confidence(),
-                        detection.x1(),
-                        detection.y1(),
-                        detection.x2(),
-                        detection.y2(),
-                        detection.width(),
-                        detection.height(),
-                        detection.area()
-                ));
+            List<DetectionResultResponse> detectionResponses = persistDetections(
+                    recordId,
+                    clientResult.imageWidth(),
+                    clientResult.imageHeight(),
+                    detections
+            );
+            if (!detections.isEmpty()) {
+                persistException(taskId, recordId, detections, resultSummary, "图片质检发现 ");
             }
 
-            if ("FAIL".equals(resultJudge)) {
-                String exceptionNo = "EX-" + LocalDateTime.now().format(TASK_FORMAT) + randomSuffix();
-                String exceptionTitle = "图片质检发现 " + output.detections().get(0).defectName() + " 缺陷";
-                jdbcTemplate.update("""
-                        INSERT INTO qc_exception (
-                            exception_no, record_id, task_id, exception_level, exception_title, exception_desc, status
-                        )
-                        VALUES (?, ?, ?, ?, ?, ?, 'OPEN')
-                        """,
-                        exceptionNo,
-                        recordId,
-                        taskId,
-                        output.detections().size() >= 2 ? "HIGH" : "MEDIUM",
-                        exceptionTitle,
-                        resultSummary
-                );
-            }
-
-            processedCount++;
-            totalDefectCount += output.detections().size();
-            recordResponses.add(new ImageInspectionRecordResponse(
+            totalDefectCount += detections.size();
+            responses.add(new ImageInspectionRecordResponse(
                     recordNo,
                     resultJudge,
                     "CONFIRMED",
-                    output.detections().size(),
+                    detections.size(),
                     topConfidence,
-                    output.preprocessTimeMs(),
-                    output.inferenceTimeMs(),
-                    output.postprocessTimeMs(),
+                    clientResult.preprocessTimeMs(),
+                    clientResult.inferenceTimeMs(),
+                    clientResult.postprocessTimeMs(),
                     resultSummary,
-                    sourceRelativePath,
-                    resultRelativePath,
+                    storedFiles.sourcePath(),
+                    storedFiles.resultPath(),
                     detectionResponses
             ));
         }
@@ -204,9 +156,9 @@ public class ImageInspectionTaskService {
                 UPDATE qc_task
                 SET processed_image_count = ?, total_defect_count = ?, task_status = 'FINISHED', finish_time = CURRENT_TIMESTAMP
                 WHERE id = ?
-                """, processedCount, totalDefectCount, taskId);
+                """, responses.size(), totalDefectCount, taskId);
 
-        return new ImageInspectionUploadResponse(taskNo, "FINISHED", recordResponses.size(), recordResponses);
+        return new ImageInspectionUploadResponse(taskNo, "FINISHED", responses.size(), responses);
     }
 
     public ImageInspectionTaskResponse createTask(List<String> fileNames, String remark) {
@@ -217,7 +169,7 @@ public class ImageInspectionTaskService {
                 )
                 VALUES (?, ?, 'image', 'CREATED', ?, 0, ?)
                 """, taskNo, "图片质检任务-" + taskNo, fileNames.size(), remark);
-        return new ImageInspectionTaskResponse(taskNo, "image", "CREATED", fileNames.size(), fileNames, "图片质检任务已创建，可继续上传文件执行质检。");
+        return new ImageInspectionTaskResponse(taskNo, "image", "CREATED", fileNames.size(), fileNames, "图片质检任务已创建，可继续提交浏览器检测结果。");
     }
 
     public List<ImageInspectionRecordResponse> listTaskRecords(String taskNo) {
@@ -231,7 +183,6 @@ public class ImageInspectionTaskService {
                         """,
                 (resultSet, rowNum) -> {
                     String recordNo = resultSet.getString("record_no");
-                    List<DetectionResultResponse> detections = queryDetections(recordNo);
                     return new ImageInspectionRecordResponse(
                             recordNo,
                             resultSet.getString("result_judge"),
@@ -244,10 +195,135 @@ public class ImageInspectionTaskService {
                             resultSet.getString("result_summary"),
                             queryFilePath(recordNo, "source_image"),
                             queryFilePath(recordNo, "result_image"),
-                            detections
+                            queryDetections(recordNo)
                     );
                 },
                 taskNo);
+    }
+
+    private void validateFileLists(
+            List<ClientImageResultRequest> records,
+            List<MultipartFile> sourceFiles,
+            List<MultipartFile> resultFiles
+    ) {
+        if (sourceFiles == null || resultFiles == null
+                || sourceFiles.size() != records.size()
+                || resultFiles.size() != records.size()) {
+            throw new IllegalArgumentException("检测结果与原图、结果图数量不一致");
+        }
+        sourceFiles.forEach(this::validateImageFile);
+        resultFiles.forEach(this::validateImageFile);
+    }
+
+    private void validateImageFile(MultipartFile file) {
+        if (file == null || file.isEmpty()) {
+            throw new IllegalArgumentException("图片文件不能为空");
+        }
+        String contentType = file.getContentType();
+        if (contentType == null || !contentType.toLowerCase(Locale.ROOT).startsWith("image/")) {
+            throw new IllegalArgumentException("仅支持图片文件");
+        }
+    }
+
+    private StoredImagePair storeImagePair(
+            String taskNo,
+            int index,
+            ClientImageResultRequest clientResult,
+            MultipartFile sourceFile,
+            MultipartFile resultFile
+    ) {
+        String datePath = LocalDate.now().format(DATE_PATH_FORMAT);
+        String sourceName = String.format("%02d-%s", index + 1, sanitizeFilename(clientResult.originalFileName()));
+        String resultExtension = imageExtension(resultFile, "jpg");
+        String resultName = String.format("%02d-%s-result.%s", index + 1, stripExtension(sourceName), resultExtension);
+        String sourceRelativePath = "image/" + datePath + "/" + taskNo + "/source/" + sourceName;
+        String resultRelativePath = "image/" + datePath + "/" + taskNo + "/result/" + resultName;
+        Path sourcePath = storagePathService.resolveAndEnsureParent(sourceRelativePath);
+        Path resultPath = storagePathService.resolveAndEnsureParent(resultRelativePath);
+        try {
+            sourceFile.transferTo(sourcePath);
+            resultFile.transferTo(resultPath);
+            return new StoredImagePair(
+                    sourceName,
+                    resultName,
+                    sourceRelativePath,
+                    resultRelativePath,
+                    Files.size(sourcePath),
+                    Files.size(resultPath)
+            );
+        } catch (IOException exception) {
+            throw new IllegalStateException("保存图片质检文件失败", exception);
+        }
+    }
+
+    private List<DetectionResultResponse> persistDetections(
+            Long recordId,
+            int imageWidth,
+            int imageHeight,
+            List<ClientInferenceResultValidator.ValidatedDetection> detections
+    ) {
+        List<DetectionResultResponse> responses = new ArrayList<>();
+        for (ClientInferenceResultValidator.ValidatedDetection detection : detections) {
+            jdbcTemplate.update("""
+                    INSERT INTO qc_defect_result (
+                        record_id, defect_type_id, defect_code, defect_name, confidence,
+                        x1, y1, x2, y2, box_width, box_height, area, image_width, image_height
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    recordId,
+                    detection.defectTypeId(),
+                    detection.defectCode(),
+                    detection.defectName(),
+                    detection.confidence(),
+                    detection.x1(),
+                    detection.y1(),
+                    detection.x2(),
+                    detection.y2(),
+                    detection.width(),
+                    detection.height(),
+                    detection.area(),
+                    imageWidth,
+                    imageHeight
+            );
+            responses.add(new DetectionResultResponse(
+                    detection.defectCode(),
+                    detection.defectName(),
+                    detection.displayColor(),
+                    detection.confidence(),
+                    detection.x1(),
+                    detection.y1(),
+                    detection.x2(),
+                    detection.y2(),
+                    detection.width(),
+                    detection.height(),
+                    detection.area()
+            ));
+        }
+        return responses;
+    }
+
+    private void persistException(
+            Long taskId,
+            Long recordId,
+            List<ClientInferenceResultValidator.ValidatedDetection> detections,
+            String resultSummary,
+            String titlePrefix
+    ) {
+        String exceptionNo = "EX-" + LocalDateTime.now().format(TASK_FORMAT) + randomSuffix();
+        jdbcTemplate.update("""
+                INSERT INTO qc_exception (
+                    exception_no, record_id, task_id, exception_level, exception_title, exception_desc, status
+                )
+                VALUES (?, ?, ?, ?, ?, ?, 'OPEN')
+                """,
+                exceptionNo,
+                recordId,
+                taskId,
+                detections.size() >= 2 ? "HIGH" : "MEDIUM",
+                titlePrefix + detections.get(0).defectName() + " 缺陷",
+                resultSummary
+        );
     }
 
     private void persistFile(
@@ -291,16 +367,6 @@ public class ImageInspectionTaskService {
         return jdbcTemplate.queryForObject("SELECT id FROM qc_record WHERE record_no = ?", Long.class, recordNo);
     }
 
-    private Long queryDefectTypeId(String defectCode) {
-        return jdbcTemplate.query("""
-                        SELECT id
-                        FROM defect_type
-                        WHERE defect_code = ?
-                        """,
-                resultSet -> resultSet.next() ? resultSet.getLong("id") : null,
-                defectCode);
-    }
-
     private List<DetectionResultResponse> queryDetections(String recordNo) {
         return jdbcTemplate.query("""
                         SELECT d.defect_code, d.defect_name, t.display_color, d.confidence,
@@ -340,12 +406,10 @@ public class ImageInspectionTaskService {
                 recordNo, fileType);
     }
 
-    private long FilesExistsSize(Path path) {
-        try {
-            return Files.size(path);
-        } catch (IOException exception) {
-            return 0L;
-        }
+    private String imageExtension(MultipartFile file, String fallback) {
+        String originalName = file.getOriginalFilename();
+        String value = extension(originalName == null ? "" : originalName);
+        return value.isBlank() ? fallback : value;
     }
 
     private String sanitizeFilename(String originalFilename) {
@@ -367,5 +431,15 @@ public class ImageInspectionTaskService {
 
     private String randomSuffix() {
         return UUID.randomUUID().toString().substring(0, 6);
+    }
+
+    private record StoredImagePair(
+            String sourceFileName,
+            String resultFileName,
+            String sourcePath,
+            String resultPath,
+            long sourceSize,
+            long resultSize
+    ) {
     }
 }

@@ -34,7 +34,7 @@ public class AuthSessionFilter extends OncePerRequestFilter {
         String path = request.getRequestURI();
         return "OPTIONS".equalsIgnoreCase(request.getMethod())
                 || LOGIN_PATH.equals(path)
-                || (!path.startsWith("/api/") && !path.startsWith("/ws/"));
+                || !path.startsWith("/api/");
     }
 
     @Override

@@ -10,7 +10,7 @@ const formState = reactive<Required<RealtimeConfigPayload>>({
   confidenceThreshold: 0.45,
   iouThreshold: 0.42,
   continuousHitFrames: 4,
-  targetInferenceFps: 25,
+  targetInferenceFps: 10,
   evidenceImageCount: 3,
 });
 
@@ -215,7 +215,7 @@ onBeforeUnmount(() => {
             <span>目标推理帧率</span>
             <strong>{{ formState.targetInferenceFps }} FPS</strong>
           </div>
-          <a-slider v-model:value="formState.targetInferenceFps" :step="1" :min="1" :max="60" />
+          <a-slider v-model:value="formState.targetInferenceFps" :step="1" :min="1" :max="30" />
         </div>
 
         <div class="slider-field">
@@ -229,7 +229,7 @@ onBeforeUnmount(() => {
 
       <div class="button-row">
         <a-button type="primary" :loading="stream.loading.value" :disabled="stream.running.value" @click="handleStart">
-          启动实时质检
+          {{ stream.loading.value ? stream.modelLoadingStage.value : "启动实时质检" }}
         </a-button>
         <a-button
           class="secondary-blue-action"

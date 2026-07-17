@@ -22,16 +22,19 @@ public class StoragePathService {
         }
     }
 
-    public String toRelativeDatabasePath(Path absolutePath) {
-        Path normalizedAbsolute = absolutePath.toAbsolutePath().normalize();
-        if (!normalizedAbsolute.startsWith(storageRoot)) {
+    public Path resolveRelativePath(String relativePath) {
+        if (relativePath == null || relativePath.isBlank()) {
+            throw new IllegalArgumentException("文件相对路径不能为空");
+        }
+        Path requestedPath = Paths.get(relativePath);
+        if (requestedPath.isAbsolute()) {
+            throw new IllegalArgumentException("文件路径必须是相对路径");
+        }
+        Path resolvedPath = storageRoot.resolve(requestedPath).normalize();
+        if (resolvedPath.equals(storageRoot) || !resolvedPath.startsWith(storageRoot)) {
             throw new IllegalArgumentException("文件路径不在配置的存储根目录下");
         }
-        return storageRoot.relativize(normalizedAbsolute).toString().replace('\\', '/');
-    }
-
-    public Path resolveRelativePath(String relativePath) {
-        return storageRoot.resolve(relativePath).normalize();
+        return resolvedPath;
     }
 
     public Path resolveAndEnsureParent(String relativePath) {
@@ -42,9 +45,5 @@ public class StoragePathService {
             throw new IllegalStateException("无法创建文件目录: " + path.getParent(), exception);
         }
         return path;
-    }
-
-    public String exampleRelativePath() {
-        return "realtime/2026/06/04/evidence-001-result.png";
     }
 }

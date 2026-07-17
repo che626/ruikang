@@ -1,4 +1,5 @@
 import http, { unwrap } from "./http";
+import type { DetectionItem } from "./records";
 
 export interface RealtimeStatus {
   cameraName: string;
@@ -40,6 +41,34 @@ export interface RealtimeConfigPayload {
   evidenceImageCount?: number;
 }
 
+export interface RealtimeMetricsPayload {
+  totalFrameCount: number;
+  defectFrameCount: number;
+  totalDefectCount: number;
+  previewFps: number;
+  inferenceFps: number;
+  latencyMs: number;
+  providerStrategy: string;
+}
+
+export interface RealtimeClientEventPayload {
+  modelSha256: string;
+  frameIndex: number;
+  imageWidth: number;
+  imageHeight: number;
+  preprocessTimeMs: number;
+  inferenceTimeMs: number;
+  postprocessTimeMs: number;
+  providerStrategy: string;
+  detections: DetectionItem[];
+}
+
+export interface RealtimeEventAccepted {
+  accepted: boolean;
+  duplicate: boolean;
+  recordNo: string | null;
+}
+
 export function fetchRealtimeStatus(): Promise<RealtimeStatus> {
   return unwrap<RealtimeStatus>(http.get("/inspection/realtime/status"));
 }
@@ -66,4 +95,24 @@ export function fetchRealtimeEvidence(): Promise<RealtimeEvidence[]> {
 
 export function clearRealtimeHistory(): Promise<void> {
   return unwrap<void>(http.delete("/inspection/realtime/history"));
+}
+
+export function updateRealtimeMetrics(payload: RealtimeMetricsPayload): Promise<RealtimeStatus> {
+  return unwrap<RealtimeStatus>(http.put("/inspection/realtime/metrics", payload));
+}
+
+export function submitRealtimeClientEvent(
+  payload: RealtimeClientEventPayload,
+  sourceFiles: File[],
+  resultFiles: File[],
+): Promise<RealtimeEventAccepted> {
+  const formData = new FormData();
+  formData.append(
+    "payload",
+    new Blob([JSON.stringify(payload)], { type: "application/json" }),
+    "payload.json",
+  );
+  sourceFiles.forEach((file) => formData.append("sourceFiles", file));
+  resultFiles.forEach((file) => formData.append("resultFiles", file));
+  return unwrap<RealtimeEventAccepted>(http.post("/inspection/realtime/client-events", formData));
 }

@@ -5,7 +5,7 @@ spring:
   application:
     name: ruikang-fabric-qc-backend
   profiles:
-    active: dev
+    active: ${SPRING_PROFILES_ACTIVE:mysql}
   servlet:
     multipart:
       max-file-size: 20MB
@@ -14,16 +14,13 @@ spring:
 qc:
   storage:
     root-path: D:/ruikang-data/qc-files
-    database-relative-only: true
   inference:
     model-path: models/ruikang.onnx
-    prefer-gpu: true
-    fallback-to-cpu: true
     confidence-threshold: 0.45
     iou-threshold: 0.42
     continuous-hit-frames: 4
     evidence-image-count: 3
-    target-inference-fps: 25
+    target-inference-fps: 10
   admin:
     username: ${QC_ADMIN_USERNAME:admin}
     password: ${QC_ADMIN_PASSWORD:admin123}

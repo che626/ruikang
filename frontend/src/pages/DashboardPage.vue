@@ -25,11 +25,6 @@ const overview = ref<DashboardOverview>({
 const dashboardVideoRef = ref<HTMLVideoElement | null>(null);
 let refreshTimer: number | undefined;
 
-const fixedSampleTiles = [
-  { image: "/samples/defect-sample-1.jpg", caption: "检查结果样例 1" },
-  { image: "/samples/defect-sample-2.jpg", caption: "检查结果样例 2" },
-];
-
 const alertItems = computed(() => {
   if (!stream.running.value) return [];
   return stream.sessionAlerts.value
@@ -66,8 +61,21 @@ const latestRealtimeImage = computed(() => {
   };
 });
 
+const defectSampleItems = computed(() => {
+  return [...stream.evidence.value]
+    .filter((item) => item.fileType === "result_image" || item.fileType === "evidence_image")
+    .sort((a, b) => Date.parse(b.createTime) - Date.parse(a.createTime))
+    .slice(0, 2)
+    .map((item) => ({
+      key: `${item.recordNo}-${item.relativePath}`,
+      image: `/api/files/content?relativePath=${encodeURIComponent(item.relativePath)}`,
+      caption: item.fileType === "result_image" ? "异常结果图" : "异常证据图",
+      recordNo: item.recordNo,
+    }));
+});
+
 const trendItems = computed(() => {
-  const targetFps = Math.max(1, stream.status.value?.targetInferenceFps ?? 30);
+  const targetFps = Math.max(1, stream.status.value?.targetInferenceFps ?? 10);
   return stream.performanceSamples.value.map((sample) => {
     const latency = sample.latency;
     const cappedFps = Math.min(sample.fps, targetFps);
@@ -186,13 +194,25 @@ onBeforeUnmount(() => {
           </article>
 
           <article class="card sample-small-card sample-pair-card">
-            <div class="card-title-row">缺陷样例</div>
-            <div class="sample-tiles fixed-sample-tiles sample-pair-tiles">
-              <figure v-for="tile in fixedSampleTiles" :key="tile.image" class="sample-tile fixed-sample-tile">
-                <img :src="tile.image" :alt="tile.caption" />
+            <div class="card-title-row">
+              <span>缺陷样例</span>
+              <span class="tag">{{ defectSampleItems.length ? "最近样例" : "暂无样例" }}</span>
+            </div>
+            <div v-if="defectSampleItems.length" class="sample-tiles">
+              <figure v-for="item in defectSampleItems" :key="item.key" class="sample-tile">
+                <img :src="item.image" :alt="`${item.recordNo}${item.caption}`" />
+                <figcaption>
+                  <strong>{{ item.caption }}</strong>
+                  <span>{{ item.recordNo }}</span>
+                </figcaption>
               </figure>
             </div>
+            <div v-else class="sample-empty-state">
+              <strong>暂无缺陷样例</strong>
+              <span>检测并保存异常结果后，这里会显示最近样例。</span>
+            </div>
           </article>
+
         </div>
       </div>
 

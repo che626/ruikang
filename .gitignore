@@ -25,7 +25,9 @@ uploads/
 !.env.example
 
 # Competition materials and one-off document generators
-docs/
+docs/*
+!docs/browser-inference/
+!docs/browser-inference/**
 tools/
 
 # OS files

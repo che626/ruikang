@@ -14,10 +14,9 @@ import org.springframework.test.context.ActiveProfiles;
 import static org.assertj.core.api.Assertions.assertThat;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
-        "spring.datasource.url=jdbc:h2:mem:ruikang_auth_test;MODE=MySQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1",
-        "qc.inference.prefer-gpu=false"
+        "spring.datasource.url=jdbc:h2:mem:ruikang_auth_test;MODE=MySQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1"
 })
-@ActiveProfiles("dev")
+@ActiveProfiles("test")
 class AuthSessionIntegrationTest {
 
     @Autowired

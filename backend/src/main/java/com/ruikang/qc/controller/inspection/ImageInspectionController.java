@@ -1,6 +1,7 @@
 package com.ruikang.qc.controller.inspection;
 
 import com.ruikang.qc.common.ApiResponse;
+import com.ruikang.qc.dto.inference.ClientImageInspectionRequest;
 import com.ruikang.qc.dto.inspection.ImageInspectionTaskRequest;
 import com.ruikang.qc.dto.inspection.ImageInspectionTaskResponse;
 import com.ruikang.qc.dto.inspection.ImageInspectionRecordResponse;
@@ -10,7 +11,7 @@ import jakarta.validation.Valid;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -34,12 +35,16 @@ public class ImageInspectionController {
         return ApiResponse.success("图片质检任务已创建", imageInspectionTaskService.createTask(request.fileNames(), request.remark()));
     }
 
-    @PostMapping(value = "/tasks/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    public ApiResponse<ImageInspectionUploadResponse> uploadAndInspect(
-            @RequestParam("files") List<MultipartFile> files,
-            @RequestParam(value = "remark", required = false) String remark
+    @PostMapping(value = "/tasks/client-results", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ApiResponse<ImageInspectionUploadResponse> acceptClientResults(
+            @Valid @RequestPart("payload") ClientImageInspectionRequest payload,
+            @RequestPart("sourceFiles") List<MultipartFile> sourceFiles,
+            @RequestPart("resultFiles") List<MultipartFile> resultFiles
     ) {
-        return ApiResponse.success("图片已上传并完成质检", imageInspectionTaskService.uploadAndInspect(files, remark));
+        return ApiResponse.success(
+                "浏览器质检结果已保存",
+                imageInspectionTaskService.acceptClientResults(payload, sourceFiles, resultFiles)
+        );
     }
 
     @GetMapping("/tasks/{taskNo}/records")

@@ -235,6 +235,31 @@ public class CatalogService {
                         : qcProperties.getInference().getModelPath());
     }
 
+    public ActiveModelAsset getActiveModelAsset() {
+        ensureModelsSyncedOnce();
+        ActiveModelAsset asset = jdbcTemplate.query("""
+                        SELECT id, model_name, model_version, model_path, input_size
+                        FROM ai_model
+                        WHERE is_active = 1
+                        ORDER BY id ASC
+                        LIMIT 1
+                        """,
+                resultSet -> resultSet.next()
+                        ? new ActiveModelAsset(
+                        resultSet.getLong("id"),
+                        resultSet.getString("model_name"),
+                        resultSet.getString("model_version"),
+                        resultSet.getString("model_path"),
+                        resultSet.getString("input_size"),
+                        resolveModelPath(resultSet.getString("model_path"))
+                )
+                        : null);
+        if (asset == null || !Files.isRegularFile(asset.filePath())) {
+            throw new IllegalStateException("当前激活模型文件不存在");
+        }
+        return asset;
+    }
+
     public Long getPrimaryCameraId() {
         return jdbcTemplate.query("""
                         SELECT id
@@ -339,8 +364,8 @@ public class CatalogService {
                 modelPath,
                 qcProperties.getInference().getConfidenceThreshold(),
                 qcProperties.getInference().getIouThreshold(),
-                qcProperties.getInference().isPreferGpu() ? 1 : 0,
-                qcProperties.getInference().isFallbackToCpu() ? 1 : 0,
+                1,
+                1,
                 "Auto-synced from model directory"
         );
     }
@@ -559,6 +584,16 @@ public class CatalogService {
             String defectCode,
             String defectName,
             String displayColor
+    ) {
+    }
+
+    public record ActiveModelAsset(
+            Long id,
+            String modelName,
+            String modelVersion,
+            String modelPath,
+            String inputSize,
+            Path filePath
     ) {
     }
 

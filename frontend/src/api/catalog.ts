@@ -18,8 +18,8 @@ export interface ModelItem {
   inputSize: string;
   confThreshold: number;
   iouThreshold: number;
-  preferGpu: boolean;
-  fallbackCpu: boolean;
+  browserPreferWebGpu: boolean;
+  browserFallbackWasm: boolean;
   isActive: number;
 }
 
@@ -30,16 +30,6 @@ export interface CameraItem {
   cameraType: string;
   status: number;
   locationDesc: string | null;
-}
-
-export interface ConfigItem {
-  id: number;
-  configCode: string;
-  configName: string;
-  configValue: string;
-  valueType: string;
-  configGroup: string;
-  remark: string | null;
 }
 
 export function fetchDefectTypes(): Promise<DefectTypeItem[]> {
@@ -54,22 +44,10 @@ export function fetchCameras(): Promise<CameraItem[]> {
   return unwrap<CameraItem[]>(http.get("/cameras"));
 }
 
-export function fetchConfigs(): Promise<ConfigItem[]> {
-  return unwrap<ConfigItem[]>(http.get("/configs"));
-}
-
-export function updateConfig(configCode: string, configValue: string): Promise<ConfigItem[]> {
-  return unwrap<ConfigItem[]>(http.put(`/configs/${configCode}`, { configValue }));
-}
-
 export function updateDefectTypeColor(defectCode: string, displayColor: string): Promise<DefectTypeItem[]> {
   return unwrap<DefectTypeItem[]>(http.put(`/defect-types/${defectCode}/color`, { displayColor }));
 }
 
 export function setModelActive(modelId: number, active: boolean): Promise<ModelItem[]> {
   return unwrap<ModelItem[]>(http.put(`/models/${modelId}/active`, { active }));
-}
-
-export function setCameraActive(cameraCode: string): Promise<CameraItem[]> {
-  return unwrap<CameraItem[]>(http.put(`/cameras/${cameraCode}/active`, {}));
 }

@@ -38,7 +38,7 @@ const runtime = ref<RealtimeStatus>({
   confidenceThreshold: 0.45,
   iouThreshold: 0.42,
   continuousHitFrames: 4,
-  targetInferenceFps: 25,
+  targetInferenceFps: 10,
   evidenceImageCount: 3,
 });
 
@@ -51,7 +51,7 @@ const systemRunningText = computed(() => {
   if (runtime.value.runtimeStatus === "ERROR") return "异常";
   return "待机";
 });
-const databaseModeText = computed(() => (import.meta.env.DEV ? "内置 H2" : "MySQL"));
+const databaseModeText = computed(() => "MySQL");
 
 function isActive(path: string) {
   return route.path === path || route.path.startsWith(path + "/");

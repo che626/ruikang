@@ -2,7 +2,14 @@
 import { computed, onBeforeUnmount, ref } from "vue";
 import { message } from "ant-design-vue";
 import type { UploadProps } from "ant-design-vue";
-import { uploadAndInspectImages, type ImageInspectionRecord, type ImageInspectionUploadResult } from "@/api/image-inspection";
+import {
+  submitClientImageResults,
+  type ClientImageInspectionRecordPayload,
+  type ImageInspectionRecord,
+  type ImageInspectionUploadResult,
+} from "@/api/image-inspection";
+import { browserInferenceClient } from "@/inference/browserInferenceClient";
+import { renderDetectionImage } from "@/inference/rendering";
 
 type SelectedImage = {
   uid: string;
@@ -13,6 +20,7 @@ type SelectedImage = {
 
 const selectedImages = ref<SelectedImage[]>([]);
 const loading = ref(false);
+const inspectionProgress = ref("");
 const lastResult = ref<ImageInspectionUploadResult | null>(null);
 const selectedRecordNo = ref("");
 
@@ -46,6 +54,26 @@ function clearSelected() {
   selectedImages.value = [];
 }
 
+async function inferImageWithRecovery(file: File, confidenceThreshold: number, iouThreshold: number) {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const bitmap = await createImageBitmap(file);
+    try {
+      return await browserInferenceClient.infer(bitmap, confidenceThreshold, iouThreshold);
+    } catch (error) {
+      lastError = error;
+      bitmap.close();
+      const message = error instanceof Error ? error.message : "";
+      if (attempt === 0 && (message.includes("响应超时") || message.includes("Worker"))) {
+        inspectionProgress.value = "正在恢复推理引擎";
+        continue;
+      }
+      throw error;
+    }
+  }
+  throw lastError;
+}
+
 async function runInspection() {
   if (!selectedImages.value.length) {
     message.warning("请先选择至少一张图片");
@@ -54,13 +82,59 @@ async function runInspection() {
 
   loading.value = true;
   try {
-    const result = await uploadAndInspectImages(selectedImages.value.map((item) => item.file), "");
+    inspectionProgress.value = "正在加载模型";
+    const { manifest } = await browserInferenceClient.ensureReady(true);
+    const records: ClientImageInspectionRecordPayload[] = [];
+    const resultFiles: File[] = [];
+
+    for (let index = 0; index < selectedImages.value.length; index += 1) {
+      const item = selectedImages.value[index];
+      inspectionProgress.value = `正在检测 ${index + 1}/${selectedImages.value.length}`;
+      const displayBitmap = await createImageBitmap(item.file);
+      try {
+        const inferenceResult = await inferImageWithRecovery(
+          item.file,
+          manifest.confidenceThreshold,
+          manifest.iouThreshold,
+        );
+        const resultBlob = await renderDetectionImage(
+          displayBitmap,
+          inferenceResult.imageWidth,
+          inferenceResult.imageHeight,
+          inferenceResult.detections,
+        );
+        const baseName = item.name.replace(/\.[^.]+$/, "") || `image-${index + 1}`;
+        resultFiles.push(new File([resultBlob], `${baseName}-result.jpg`, { type: resultBlob.type }));
+        records.push({
+          originalFileName: item.name,
+          imageWidth: inferenceResult.imageWidth,
+          imageHeight: inferenceResult.imageHeight,
+          preprocessTimeMs: inferenceResult.preprocessTimeMs,
+          inferenceTimeMs: inferenceResult.inferenceTimeMs,
+          postprocessTimeMs: inferenceResult.postprocessTimeMs,
+          providerStrategy: inferenceResult.providerStrategy,
+          detections: inferenceResult.detections,
+        });
+      } finally {
+        displayBitmap.close();
+      }
+    }
+
+    inspectionProgress.value = "正在保存结果";
+    const result = await submitClientImageResults(
+      manifest.sha256,
+      records,
+      selectedImages.value.map((item) => item.file),
+      resultFiles,
+      "",
+    );
     lastResult.value = result;
     selectedRecordNo.value = result.records[0]?.recordNo ?? "";
     message.success(`图片质检完成，共处理 ${result.fileCount} 张图片`);
   } catch (error) {
     message.error(error instanceof Error ? error.message : "图片质检失败");
   } finally {
+    inspectionProgress.value = "";
     loading.value = false;
   }
 }
@@ -116,7 +190,9 @@ onBeforeUnmount(clearSelected);
       </div>
 
       <div class="button-row">
-        <a-button type="primary" :loading="loading" @click="runInspection">开始质检</a-button>
+        <a-button type="primary" :loading="loading" @click="runInspection">
+          {{ loading ? inspectionProgress : "开始质检" }}
+        </a-button>
         <a-button @click="clearSelected">清空图片</a-button>
       </div>
 

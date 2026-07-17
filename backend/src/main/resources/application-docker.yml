@@ -11,16 +11,13 @@ spring:
 qc:
   storage:
     root-path: ${QC_STORAGE_ROOT:/app/data/qc-files}
-    database-relative-only: true
   inference:
     model-path: ${QC_MODEL_PATH:models/ruikang.onnx}
-    prefer-gpu: ${QC_INFERENCE_PREFER_GPU:false}
-    fallback-to-cpu: true
     confidence-threshold: ${QC_CONFIDENCE_THRESHOLD:0.45}
     iou-threshold: ${QC_IOU_THRESHOLD:0.42}
     continuous-hit-frames: ${QC_CONTINUOUS_HIT_FRAMES:4}
     evidence-image-count: ${QC_EVIDENCE_IMAGE_COUNT:3}
-    target-inference-fps: ${QC_TARGET_INFERENCE_FPS:25}
+    target-inference-fps: ${QC_TARGET_INFERENCE_FPS:10}
   aigc:
     api-key: ${DEEPSEEK_API_KEY:}
     fallback-local: ${AIGC_FALLBACK_LOCAL:true}

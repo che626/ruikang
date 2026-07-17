@@ -1,13 +1,6 @@
 import { createRouter, createWebHistory } from "vue-router";
 import AppLayout from "@/layouts/AppLayout.vue";
-import DashboardPage from "@/pages/DashboardPage.vue";
-import DefectAnalysisPage from "@/pages/DefectAnalysisPage.vue";
-import ImageInspectionPage from "@/pages/ImageInspectionPage.vue";
-import LoginPage from "@/pages/LoginPage.vue";
-import RealtimePage from "@/pages/RealtimePage.vue";
-import RecordsPage from "@/pages/RecordsPage.vue";
-import ConfigPage from "@/pages/ConfigPage.vue";
-import { TOKEN_KEY } from "@/auth/session";
+import { SESSION_MARKER, TOKEN_KEY } from "@/auth/session";
 
 const router = createRouter({
   history: createWebHistory(),
@@ -15,7 +8,7 @@ const router = createRouter({
     {
       path: "/login",
       name: "login",
-      component: LoginPage,
+      component: () => import("@/pages/LoginPage.vue"),
       meta: {
         public: true,
         title: "系统登录",
@@ -33,7 +26,7 @@ const router = createRouter({
         {
           path: "/dashboard",
           name: "dashboard",
-          component: DashboardPage,
+          component: () => import("@/pages/DashboardPage.vue"),
           meta: {
             title: "首页看板",
             label: "OVERVIEW",
@@ -42,7 +35,7 @@ const router = createRouter({
         {
           path: "/realtime",
           name: "realtime",
-          component: RealtimePage,
+          component: () => import("@/pages/RealtimePage.vue"),
           meta: {
             title: "实时质检",
             label: "REALTIME"
@@ -51,7 +44,7 @@ const router = createRouter({
         {
           path: "/image",
           name: "image",
-          component: ImageInspectionPage,
+          component: () => import("@/pages/ImageInspectionPage.vue"),
           meta: {
             title: "图片质检",
             label: "IMAGE"
@@ -60,7 +53,7 @@ const router = createRouter({
         {
           path: "/records",
           name: "records",
-          component: RecordsPage,
+          component: () => import("@/pages/RecordsPage.vue"),
           meta: {
             title: "质检记录",
             label: "RECORDS"
@@ -69,7 +62,7 @@ const router = createRouter({
         {
           path: "/defects",
           name: "defects",
-          component: DefectAnalysisPage,
+          component: () => import("@/pages/DefectAnalysisPage.vue"),
           meta: {
             title: "缺陷分析",
             label: "DEFECTS"
@@ -78,7 +71,7 @@ const router = createRouter({
         {
           path: "/config/:section(defect|model|camera)",
           name: "config",
-          component: ConfigPage,
+          component: () => import("@/pages/ConfigPage.vue"),
           meta: {
             title: "系统配置",
             label: "CONFIG"
@@ -110,6 +103,9 @@ router.beforeEach((to) => {
         redirect: to.fullPath,
       },
     };
+  }
+  if (token !== SESSION_MARKER) {
+    localStorage.setItem(TOKEN_KEY, SESSION_MARKER);
   }
   return true;
 });

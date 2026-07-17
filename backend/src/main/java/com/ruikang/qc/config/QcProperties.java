@@ -28,7 +28,6 @@ public class QcProperties {
 
     public static class Storage {
         private String rootPath = "D:/ruikang-data/qc-files";
-        private boolean databaseRelativeOnly = true;
 
         public String getRootPath() {
             return rootPath;
@@ -38,24 +37,15 @@ public class QcProperties {
             this.rootPath = rootPath;
         }
 
-        public boolean isDatabaseRelativeOnly() {
-            return databaseRelativeOnly;
-        }
-
-        public void setDatabaseRelativeOnly(boolean databaseRelativeOnly) {
-            this.databaseRelativeOnly = databaseRelativeOnly;
-        }
     }
 
     public static class Inference {
         private String modelPath = "models/ruikang.onnx";
-        private boolean preferGpu = true;
-        private boolean fallbackToCpu = true;
         private double confidenceThreshold = 0.45D;
         private double iouThreshold = 0.42D;
         private int continuousHitFrames = 4;
         private int evidenceImageCount = 3;
-        private int targetInferenceFps = 25;
+        private int targetInferenceFps = 10;
 
         public String getModelPath() {
             return modelPath;
@@ -63,22 +53,6 @@ public class QcProperties {
 
         public void setModelPath(String modelPath) {
             this.modelPath = modelPath;
-        }
-
-        public boolean isPreferGpu() {
-            return preferGpu;
-        }
-
-        public void setPreferGpu(boolean preferGpu) {
-            this.preferGpu = preferGpu;
-        }
-
-        public boolean isFallbackToCpu() {
-            return fallbackToCpu;
-        }
-
-        public void setFallbackToCpu(boolean fallbackToCpu) {
-            this.fallbackToCpu = fallbackToCpu;
         }
 
         public double getConfidenceThreshold() {

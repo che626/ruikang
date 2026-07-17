@@ -15,7 +15,7 @@ VALUES
     ('iou_threshold', 'IOU 阈值', '0.42', 'number', 'runtime', 'NMS IOU 阈值'),
     ('continuous_hit_frames', '连续命中帧数', '4', 'number', 'runtime', '连续命中后触发异常保存'),
     ('evidence_image_count', '证据图数量', '3', 'number', 'runtime', '每次异常保存的证据图数量'),
-    ('target_inference_fps', '目标推理帧率', '25', 'number', 'runtime', '实时推理目标帧率');
+    ('target_inference_fps', '目标推理帧率', '10', 'number', 'runtime', '浏览器实时推理目标帧率');
 
 UPDATE defect_type SET status = 0;
 

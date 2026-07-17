@@ -13,7 +13,6 @@ WORKDIR /app
 ENV SPRING_PROFILES_ACTIVE=docker
 ENV QC_STORAGE_ROOT=/app/uploads
 ENV QC_MODEL_PATH=models/ruikang.onnx
-ENV QC_INFERENCE_PREFER_GPU=false
 ENV JAVA_OPTS="-Xms128m -Xmx512m -XX:MaxMetaspaceSize=128m"
 
 RUN mkdir -p /app/uploads /app/models

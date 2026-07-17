@@ -3,7 +3,7 @@ import { reactive, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { message } from "ant-design-vue";
 import { login } from "@/api/auth";
-import { TOKEN_KEY } from "@/auth/session";
+import { SESSION_MARKER, TOKEN_KEY } from "@/auth/session";
 
 const router = useRouter();
 const route = useRoute();
@@ -18,7 +18,7 @@ async function handleSubmit() {
   loading.value = true;
   try {
     const result = await login(formState);
-    localStorage.setItem(TOKEN_KEY, result.token);
+    localStorage.setItem(TOKEN_KEY, SESSION_MARKER);
     message.success(`欢迎回来，${result.displayName}`);
     const redirect = typeof route.query.redirect === "string" ? route.query.redirect : "/dashboard";
     router.replace(redirect);

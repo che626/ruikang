@@ -8,8 +8,8 @@ public record ModelItemResponse(
         String inputSize,
         Double confThreshold,
         Double iouThreshold,
-        Boolean preferGpu,
-        Boolean fallbackCpu,
+        Boolean browserPreferWebGpu,
+        Boolean browserFallbackWasm,
         Integer isActive
 ) {
 }

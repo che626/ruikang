@@ -1,12 +1,12 @@
 package com.ruikang.qc.service;
 
-import com.ruikang.qc.dto.exceptioncase.HandleExceptionRequest;
 import com.ruikang.qc.dto.inspection.DetectionResultResponse;
 import com.ruikang.qc.dto.record.RecordDetailResponse;
 import com.ruikang.qc.dto.record.RecordListItemResponse;
 import com.ruikang.qc.dto.record.ReviewRecordRequest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -88,24 +88,18 @@ public class RecordService {
                     String sourcePath = querySinglePath(recordNo, "source_image");
                     String resultPath = querySinglePath(recordNo, "result_image");
 
-                    String exceptionNo = jdbcTemplate.query("""
-                                    SELECT exception_no
+                    LatestException latestException = jdbcTemplate.query("""
+                                    SELECT exception_no, status
                                     FROM qc_exception
                                     WHERE record_id = (SELECT id FROM qc_record WHERE record_no = ?)
                                     ORDER BY id DESC
                                     LIMIT 1
                                     """,
-                            exceptionRs -> exceptionRs.next() ? exceptionRs.getString("exception_no") : null,
-                            recordNo);
-
-                    String exceptionStatus = jdbcTemplate.query("""
-                                    SELECT status
-                                    FROM qc_exception
-                                    WHERE record_id = (SELECT id FROM qc_record WHERE record_no = ?)
-                                    ORDER BY id DESC
-                                    LIMIT 1
-                                    """,
-                            exceptionRs -> exceptionRs.next() ? exceptionRs.getString("status") : null,
+                            exceptionRs -> exceptionRs.next()
+                                    ? new LatestException(
+                                    exceptionRs.getString("exception_no"),
+                                    exceptionRs.getString("status"))
+                                    : null,
                             recordNo);
 
                     return new RecordDetailResponse(
@@ -125,8 +119,8 @@ public class RecordService {
                             resultPath,
                             evidencePaths,
                             detections,
-                            exceptionNo,
-                            exceptionStatus
+                            latestException == null ? null : latestException.exceptionNo(),
+                            latestException == null ? null : latestException.status()
                     );
                 },
                 recordNo);
@@ -141,6 +135,7 @@ public class RecordService {
         return getRecordDetail(recordNo);
     }
 
+    @Transactional
     public void clearRecords() {
         jdbcTemplate.update("DELETE FROM qc_exception");
         jdbcTemplate.update("DELETE FROM qc_defect_result");
@@ -159,5 +154,8 @@ public class RecordService {
                         """,
                 resultSet -> resultSet.next() ? resultSet.getString("relative_path") : null,
                 recordNo, fileType);
+    }
+
+    private record LatestException(String exceptionNo, String status) {
     }
 }

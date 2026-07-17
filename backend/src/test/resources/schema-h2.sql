@@ -83,7 +83,7 @@ CREATE TABLE IF NOT EXISTS qc_record (
     inference_time_ms INT,
     preprocess_time_ms INT,
     postprocess_time_ms INT,
-    review_status VARCHAR(30) NOT NULL DEFAULT 'CONFIRMED',
+    review_status VARCHAR(30) NOT NULL DEFAULT 'PENDING',
     review_remark VARCHAR(255),
     review_time TIMESTAMP,
     inspect_time TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
