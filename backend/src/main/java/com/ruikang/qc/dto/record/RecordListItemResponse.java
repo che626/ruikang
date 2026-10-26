@@ -10,6 +10,7 @@ public record RecordListItemResponse(
         int defectCount,
         Double confidenceScore,
         String resultSummary,
-        LocalDateTime inspectTime
+        LocalDateTime inspectTime,
+        String thumbnailImagePath
 ) {
 }

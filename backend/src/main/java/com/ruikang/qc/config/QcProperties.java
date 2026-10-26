@@ -45,7 +45,7 @@ public class QcProperties {
         private double iouThreshold = 0.42D;
         private int continuousHitFrames = 4;
         private int evidenceImageCount = 3;
-        private int targetInferenceFps = 10;
+        private int targetInferenceFps = 60;
 
         public String getModelPath() {
             return modelPath;

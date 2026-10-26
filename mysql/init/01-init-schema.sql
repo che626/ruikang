@@ -88,7 +88,7 @@ CREATE TABLE IF NOT EXISTS qc_record (
     inference_time_ms INT DEFAULT NULL COMMENT '推理耗时毫秒',
     preprocess_time_ms INT DEFAULT NULL COMMENT '预处理耗时毫秒',
     postprocess_time_ms INT DEFAULT NULL COMMENT '后处理耗时毫秒',
-    review_status VARCHAR(30) NOT NULL DEFAULT 'PENDING' COMMENT '复核状态：PENDING/CONFIRMED/FALSE_ALARM',
+    review_status VARCHAR(30) NOT NULL DEFAULT 'PENDING' COMMENT '人工复核状态：PENDING/PASS/REJECTED/MISSED/FALSE_ALARM',
     review_remark VARCHAR(255) DEFAULT NULL COMMENT '复核备注',
     review_time DATETIME DEFAULT NULL COMMENT '复核时间',
     inspect_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '检测时间',

@@ -24,6 +24,9 @@ class RequestValidationTest {
     @Test
     void acceptsDocumentedValues() {
         assertThat(VALIDATOR.validate(new ReviewRecordRequest("FALSE_ALARM", null))).isEmpty();
+        assertThat(VALIDATOR.validate(new ReviewRecordRequest("PASS", "人工确认通过"))).isEmpty();
+        assertThat(VALIDATOR.validate(new ReviewRecordRequest("REJECTED", "人工确认不通过"))).isEmpty();
+        assertThat(VALIDATOR.validate(new ReviewRecordRequest("MISSED", "人工确认漏报"))).isEmpty();
         assertThat(VALIDATOR.validate(new HandleExceptionRequest("CLOSED", null, null))).isEmpty();
         assertThat(VALIDATOR.validate(new UpdateDefectColorRequest("#34d399"))).isEmpty();
     }

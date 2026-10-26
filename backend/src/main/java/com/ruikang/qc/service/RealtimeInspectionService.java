@@ -32,7 +32,6 @@ import java.util.concurrent.atomic.AtomicReference;
 @Service
 public class RealtimeInspectionService {
 
-    private static final DateTimeFormatter TASK_FORMAT = DateTimeFormatter.ofPattern("yyyyMMddHHmmss");
     private static final DateTimeFormatter DATE_PATH_FORMAT = DateTimeFormatter.ofPattern("yyyy/MM/dd");
     private static final long PIECE_DEDUPE_WINDOW_MS = 20_000L;
 
@@ -58,7 +57,6 @@ public class RealtimeInspectionService {
     private volatile String latestProviderStrategy = "BROWSER_PENDING";
     private volatile String lastPersistedFingerprint;
     private volatile long lastPersistedAt;
-    private volatile int pieceSequence;
 
     public RealtimeInspectionService(
             QcProperties qcProperties,
@@ -80,7 +78,7 @@ public class RealtimeInspectionService {
         if (running.get()) {
             return latestStatus.get();
         }
-        currentTaskNo = "RTC-" + LocalDateTime.now().format(TASK_FORMAT) + randomSuffix();
+        currentTaskNo = "RTC-" + randomSuffix();
         Long cameraId = catalogService.getPrimaryCameraId();
         Long modelId = catalogService.getActiveModelId();
         jdbcTemplate.update("""
@@ -106,7 +104,6 @@ public class RealtimeInspectionService {
         latestProviderStrategy = "BROWSER_PENDING";
         lastPersistedFingerprint = null;
         lastPersistedAt = 0;
-        pieceSequence = 0;
         synchronized (recentEvents) {
             recentEvents.clear();
         }
@@ -157,7 +154,6 @@ public class RealtimeInspectionService {
         currentTaskNo = null;
         lastPersistedFingerprint = null;
         lastPersistedAt = 0;
-        pieceSequence = 0;
         return latestStatus.get();
     }
 
@@ -244,8 +240,8 @@ public class RealtimeInspectionService {
                 60_000
         );
 
-        String recordNo = "REC-" + LocalDateTime.now().format(TASK_FORMAT) + randomSuffix();
-        String pieceNo = "FAB-" + LocalDateTime.now().format(TASK_FORMAT) + "-" + String.format("%03d", ++pieceSequence);
+        String recordNo = "REC-" + randomSuffix();
+        String pieceNo = "FAB-" + randomSuffix();
         String resultSummary = "面料事件 " + pieceNo + " 连续命中，保存 " + sourceFiles.size()
                 + " 组证据，检测到 " + detections.size() + " 个缺陷";
         Long cameraId = catalogService.getPrimaryCameraId();
@@ -257,7 +253,7 @@ public class RealtimeInspectionService {
                     confidence_score, defect_count, frame_snapshot_no, result_summary,
                     inference_time_ms, preprocess_time_ms, postprocess_time_ms, review_status, inspect_time
                 )
-                VALUES (?, ?, ?, ?, 'realtime', 'camera', 'FAIL', ?, ?, ?, ?, ?, ?, ?, 'CONFIRMED', CURRENT_TIMESTAMP)
+                VALUES (?, ?, ?, ?, 'realtime', 'camera', 'FAIL', ?, ?, ?, ?, ?, ?, ?, 'PENDING', CURRENT_TIMESTAMP)
                 """,
                 recordNo,
                 currentTaskId,
@@ -434,7 +430,7 @@ public class RealtimeInspectionService {
             List<ClientInferenceResultValidator.ValidatedDetection> detections,
             String resultSummary
     ) {
-        String exceptionNo = "EX-" + LocalDateTime.now().format(TASK_FORMAT) + randomSuffix();
+        String exceptionNo = "EX-" + randomSuffix();
         jdbcTemplate.update("""
                 INSERT INTO qc_exception (
                     exception_no, record_id, task_id, exception_level, exception_title, exception_desc, status
@@ -563,6 +559,6 @@ public class RealtimeInspectionService {
     }
 
     private String randomSuffix() {
-        return UUID.randomUUID().toString().substring(0, 6);
+        return UUID.randomUUID().toString().replace("-", "").substring(0, 8).toUpperCase(Locale.ROOT);
     }
 }

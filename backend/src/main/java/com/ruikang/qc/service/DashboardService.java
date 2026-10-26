@@ -28,7 +28,11 @@ public class DashboardService {
         int totalFailRecords = queryCount("SELECT COUNT(*) FROM qc_record WHERE result_judge = 'FAIL'");
         int totalOpenExceptions = queryCount("SELECT COUNT(*) FROM qc_exception WHERE status IN ('OPEN', 'PROCESSING')");
         int totalReviewCount = queryCount("SELECT COUNT(*) FROM qc_record WHERE review_status <> 'PENDING'");
-        int confirmedCount = queryCount("SELECT COUNT(*) FROM qc_record WHERE review_status = 'CONFIRMED'");
+        int confirmedCount = queryCount("""
+                SELECT COUNT(*)
+                FROM qc_record
+                WHERE review_status IN ('CONFIRMED', 'PASS', 'REJECTED')
+                """);
         String reviewAccuracy = totalReviewCount == 0
                 ? "100%"
                 : String.format("%.1f%%", confirmedCount * 100.0 / totalReviewCount);

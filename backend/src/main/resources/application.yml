@@ -20,7 +20,7 @@ qc:
     iou-threshold: 0.42
     continuous-hit-frames: 4
     evidence-image-count: 3
-    target-inference-fps: 10
+    target-inference-fps: 60
   admin:
     username: ${QC_ADMIN_USERNAME:admin}
     password: ${QC_ADMIN_PASSWORD:admin123}

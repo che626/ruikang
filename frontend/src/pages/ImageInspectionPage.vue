@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from "vue";
 import { message } from "ant-design-vue";
 import type { UploadProps } from "ant-design-vue";
 import {
@@ -17,6 +17,9 @@ type SelectedImage = {
   file: File;
   url: string;
 };
+
+// Keep each multipart request comfortably below the server request-size limit.
+const SAVE_BATCH_SIZE = 4;
 
 const selectedImages = ref<SelectedImage[]>([]);
 const loading = ref(false);
@@ -81,11 +84,16 @@ async function runInspection() {
   }
 
   loading.value = true;
+  lastResult.value = null;
+  selectedRecordNo.value = "";
   try {
     inspectionProgress.value = "正在加载模型";
     const { manifest } = await browserInferenceClient.ensureReady(true);
-    const records: ClientImageInspectionRecordPayload[] = [];
-    const resultFiles: File[] = [];
+    const completedRecords: ImageInspectionRecord[] = [];
+    const completedTaskNos: string[] = [];
+    let batchRecords: ClientImageInspectionRecordPayload[] = [];
+    let batchSourceFiles: File[] = [];
+    let batchResultFiles: File[] = [];
 
     for (let index = 0; index < selectedImages.value.length; index += 1) {
       const item = selectedImages.value[index];
@@ -104,8 +112,11 @@ async function runInspection() {
           inferenceResult.detections,
         );
         const baseName = item.name.replace(/\.[^.]+$/, "") || `image-${index + 1}`;
-        resultFiles.push(new File([resultBlob], `${baseName}-result.jpg`, { type: resultBlob.type }));
-        records.push({
+        batchResultFiles.push(
+          new File([resultBlob], `${baseName}-result.jpg`, { type: resultBlob.type }),
+        );
+        batchSourceFiles.push(item.file);
+        batchRecords.push({
           originalFileName: item.name,
           imageWidth: inferenceResult.imageWidth,
           imageHeight: inferenceResult.imageHeight,
@@ -118,19 +129,40 @@ async function runInspection() {
       } finally {
         displayBitmap.close();
       }
+
+      const shouldSaveBatch = batchRecords.length >= SAVE_BATCH_SIZE
+        || index === selectedImages.value.length - 1;
+      if (!shouldSaveBatch) continue;
+
+      inspectionProgress.value = `正在保存 ${index + 1}/${selectedImages.value.length}`;
+      const batchResult = await submitClientImageResults(
+        manifest.sha256,
+        batchRecords,
+        batchSourceFiles,
+        batchResultFiles,
+        `批量图片质检，第 ${completedTaskNos.length + 1} 批`,
+      );
+      completedTaskNos.push(batchResult.taskNo);
+      completedRecords.push(...batchResult.records);
+
+      lastResult.value = {
+        taskNo: completedTaskNos.length === 1
+          ? completedTaskNos[0]
+          : `${completedTaskNos[0]} 等 ${completedTaskNos.length} 批`,
+        taskStatus: "FINISHED",
+        fileCount: completedRecords.length,
+        records: [...completedRecords],
+      };
+      if (!selectedRecordNo.value) {
+        selectedRecordNo.value = completedRecords[0]?.recordNo ?? "";
+      }
+
+      batchRecords = [];
+      batchSourceFiles = [];
+      batchResultFiles = [];
     }
 
-    inspectionProgress.value = "正在保存结果";
-    const result = await submitClientImageResults(
-      manifest.sha256,
-      records,
-      selectedImages.value.map((item) => item.file),
-      resultFiles,
-      "",
-    );
-    lastResult.value = result;
-    selectedRecordNo.value = result.records[0]?.recordNo ?? "";
-    message.success(`图片质检完成，共处理 ${result.fileCount} 张图片`);
+    message.success(`图片质检完成，共处理 ${completedRecords.length} 张图片`);
   } catch (error) {
     message.error(error instanceof Error ? error.message : "图片质检失败");
   } finally {
@@ -152,7 +184,62 @@ function reviewText(status: string, resultJudge = "FAIL") {
   return status === "FALSE_ALARM" ? "误报" : "真实缺陷";
 }
 
-onBeforeUnmount(clearSelected);
+function scrollActiveResultInsideList() {
+  const container = document.querySelector<HTMLElement>(".inspection-result-scroll");
+  const activeItem = container?.querySelector<HTMLElement>(".record-button.active");
+  if (!container || !activeItem) return;
+
+  const itemTop = activeItem.offsetTop;
+  const itemBottom = itemTop + activeItem.offsetHeight;
+  const visibleTop = container.scrollTop;
+  const visibleBottom = visibleTop + container.clientHeight;
+
+  if (itemTop < visibleTop) {
+    container.scrollTo({ top: itemTop, behavior: "smooth" });
+  } else if (itemBottom > visibleBottom) {
+    container.scrollTo({
+      top: itemBottom - container.clientHeight,
+      behavior: "smooth",
+    });
+  }
+}
+
+function switchResultByKeyboard(direction: -1 | 1) {
+  const records = lastResult.value?.records ?? [];
+  if (!records.length) return;
+
+  const currentIndex = Math.max(
+    0,
+    records.findIndex((record) => record.recordNo === selectedRecordNo.value),
+  );
+  const nextIndex = Math.min(records.length - 1, Math.max(0, currentIndex + direction));
+  if (nextIndex === currentIndex) return;
+
+  selectedRecordNo.value = records[nextIndex].recordNo;
+  void nextTick(scrollActiveResultInsideList);
+}
+
+function handleResultKeyboardNavigation(event: KeyboardEvent) {
+  if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
+  const target = event.target as HTMLElement | null;
+  if (
+    target?.matches("input, textarea, select, [contenteditable='true']")
+    || target?.closest(".ant-select, .ant-input, .ant-modal")
+  ) {
+    return;
+  }
+  if (!lastResult.value?.records.length) return;
+
+  event.preventDefault();
+  switchResultByKeyboard(event.key === "ArrowUp" ? -1 : 1);
+}
+
+onMounted(() => window.addEventListener("keydown", handleResultKeyboardNavigation));
+
+onBeforeUnmount(() => {
+  window.removeEventListener("keydown", handleResultKeyboardNavigation);
+  clearSelected();
+});
 </script>
 
 <template>
@@ -169,7 +256,7 @@ onBeforeUnmount(clearSelected);
       <a-upload-dragger :multiple="true" :show-upload-list="false" :before-upload="beforeUpload">
         <p class="ant-upload-drag-icon">+</p>
         <p class="ant-upload-text">拖拽图片到这里，或点击选择文件</p>
-        <p class="ant-upload-hint">支持 JPG / PNG，建议单次不超过 10 张</p>
+        <p class="ant-upload-hint">支持 JPG / PNG，可一次选择多张，系统将自动分批处理</p>
       </a-upload-dragger>
 
       <div class="upload-preview-box fixed-upload-preview">
@@ -179,7 +266,7 @@ onBeforeUnmount(clearSelected);
         </div>
         <div v-if="selectedImages.length" class="upload-preview-grid upload-preview-scroll">
           <figure v-for="item in selectedImages" :key="item.uid" class="uploaded-image-card">
-            <img :src="item.url" :alt="item.name" />
+            <img :src="item.url" :alt="item.name" loading="lazy" />
             <figcaption>
               <span>{{ item.name }}</span>
               <button type="button" @click="removeSelected(item.uid)">移除</button>

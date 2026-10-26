@@ -9,7 +9,7 @@ public record RealtimeConfigRequest(
         @DecimalMin("0.01") @DecimalMax("0.99") Double confidenceThreshold,
         @DecimalMin("0.01") @DecimalMax("0.99") Double iouThreshold,
         @Min(1) @Max(20) Integer continuousHitFrames,
-        @Min(1) @Max(30) Integer targetInferenceFps,
+        @Min(1) @Max(60) Integer targetInferenceFps,
         @Min(1) @Max(5) Integer evidenceImageCount
 ) {
 }

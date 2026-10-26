@@ -10,7 +10,7 @@ const formState = reactive<Required<RealtimeConfigPayload>>({
   confidenceThreshold: 0.45,
   iouThreshold: 0.42,
   continuousHitFrames: 4,
-  targetInferenceFps: 10,
+  targetInferenceFps: 60,
   evidenceImageCount: 3,
 });
 
@@ -215,7 +215,7 @@ onBeforeUnmount(() => {
             <span>目标推理帧率</span>
             <strong>{{ formState.targetInferenceFps }} FPS</strong>
           </div>
-          <a-slider v-model:value="formState.targetInferenceFps" :step="1" :min="1" :max="30" />
+          <a-slider v-model:value="formState.targetInferenceFps" :step="1" :min="1" :max="60" />
         </div>
 
         <div class="slider-field">

@@ -23,6 +23,7 @@ export interface RecordListItem {
   confidenceScore: number | null;
   resultSummary: string;
   inspectTime: string;
+  thumbnailImagePath: string | null;
 }
 
 export interface RecordDetail {
@@ -47,7 +48,7 @@ export interface RecordDetail {
 }
 
 export interface ReviewRecordPayload {
-  reviewStatus: string;
+  reviewStatus: "PASS" | "REJECTED" | "MISSED" | "FALSE_ALARM";
   reviewRemark?: string;
 }
 

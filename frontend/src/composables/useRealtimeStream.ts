@@ -43,7 +43,7 @@ type EvidenceSnapshot = {
 
 const API_POLL_MS = 4_000;
 const METRICS_INTERVAL_MS = 1_000;
-const DEFAULT_TARGET_INFERENCE_FPS = 10;
+const DEFAULT_TARGET_INFERENCE_FPS = 60;
 
 const running = ref(false);
 const loading = ref(false);
@@ -153,12 +153,12 @@ async function ensureWebcam(externalVideo?: HTMLVideoElement | null) {
               deviceId: { exact: deviceId },
               width: { ideal: 1280 },
               height: { ideal: 720 },
-              frameRate: { ideal: 30 },
+              frameRate: { ideal: 60 },
             }
           : {
               width: { ideal: 1280 },
               height: { ideal: 720 },
-              frameRate: { ideal: 30 },
+              frameRate: { ideal: 60 },
               facingMode: "environment",
             },
         audio: false,
@@ -171,7 +171,7 @@ async function ensureWebcam(externalVideo?: HTMLVideoElement | null) {
         video: {
           width: { ideal: 1280 },
           height: { ideal: 720 },
-          frameRate: { ideal: 30 },
+          frameRate: { ideal: 60 },
           facingMode: "environment",
         },
         audio: false,
@@ -368,7 +368,7 @@ function runInferenceLoop(generation: number) {
   if (!running.value || generation !== runGeneration) return;
   const now = performance.now();
   const targetFps = Math.min(
-    30,
+    60,
     Math.max(1, status.value?.targetInferenceFps ?? DEFAULT_TARGET_INFERENCE_FPS),
   );
   if (

@@ -22,10 +22,26 @@ public class RecordService {
 
     public List<RecordListItemResponse> listRecords() {
         return jdbcTemplate.query("""
-                        SELECT record_no, inspect_type, result_judge, review_status, defect_count,
-                               confidence_score, result_summary, inspect_time
-                        FROM qc_record
-                        ORDER BY inspect_time DESC
+                        SELECT r.record_no, r.inspect_type, r.result_judge, r.review_status, r.defect_count,
+                               r.confidence_score, r.result_summary, r.inspect_time,
+                               COALESCE(
+                                   (
+                                       SELECT f.relative_path
+                                       FROM qc_file f
+                                       WHERE f.record_id = r.id AND f.file_type = 'result_image'
+                                       ORDER BY f.id DESC
+                                       LIMIT 1
+                                   ),
+                                   (
+                                       SELECT f.relative_path
+                                       FROM qc_file f
+                                       WHERE f.record_id = r.id AND f.file_type = 'source_image'
+                                       ORDER BY f.id DESC
+                                       LIMIT 1
+                                   )
+                               ) AS thumbnail_image_path
+                        FROM qc_record r
+                        ORDER BY r.inspect_time DESC
                         """,
                 (resultSet, rowNum) -> new RecordListItemResponse(
                         resultSet.getString("record_no"),
@@ -35,7 +51,8 @@ public class RecordService {
                         resultSet.getInt("defect_count"),
                         resultSet.getObject("confidence_score", Double.class),
                         resultSet.getString("result_summary"),
-                        resultSet.getObject("inspect_time", LocalDateTime.class)
+                        resultSet.getObject("inspect_time", LocalDateTime.class),
+                        resultSet.getString("thumbnail_image_path")
                 ));
     }
 
@@ -127,11 +144,14 @@ public class RecordService {
     }
 
     public RecordDetailResponse reviewRecord(String recordNo, ReviewRecordRequest request) {
-        jdbcTemplate.update("""
+        int updatedRows = jdbcTemplate.update("""
                 UPDATE qc_record
                 SET review_status = ?, review_remark = ?, review_time = CURRENT_TIMESTAMP, update_time = CURRENT_TIMESTAMP
                 WHERE record_no = ?
                 """, request.reviewStatus(), request.reviewRemark(), recordNo);
+        if (updatedRows == 0) {
+            throw new IllegalArgumentException("记录不存在: " + recordNo);
+        }
         return getRecordDetail(recordNo);
     }
 

@@ -6,8 +6,8 @@ import jakarta.validation.constraints.Pattern;
 public record ReviewRecordRequest(
         @NotBlank(message = "复核状态不能为空")
         @Pattern(
-                regexp = "PENDING|CONFIRMED|FALSE_ALARM",
-                message = "复核状态必须为 PENDING、CONFIRMED 或 FALSE_ALARM"
+                regexp = "PENDING|CONFIRMED|PASS|REJECTED|MISSED|FALSE_ALARM",
+                message = "复核状态必须为 PENDING、CONFIRMED、PASS、REJECTED、MISSED 或 FALSE_ALARM"
         )
         String reviewStatus,
         String reviewRemark

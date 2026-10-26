@@ -17,7 +17,7 @@ qc:
     iou-threshold: ${QC_IOU_THRESHOLD:0.42}
     continuous-hit-frames: ${QC_CONTINUOUS_HIT_FRAMES:4}
     evidence-image-count: ${QC_EVIDENCE_IMAGE_COUNT:3}
-    target-inference-fps: ${QC_TARGET_INFERENCE_FPS:10}
+    target-inference-fps: ${QC_TARGET_INFERENCE_FPS:60}
   aigc:
     api-key: ${DEEPSEEK_API_KEY:}
     fallback-local: ${AIGC_FALLBACK_LOCAL:true}

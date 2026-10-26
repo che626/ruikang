@@ -107,12 +107,38 @@ class BrowserInferenceIntegrationTest {
         assertThat(data.path("taskStatus").asText()).isEqualTo("FINISHED");
         assertThat(data.path("fileCount").asInt()).isEqualTo(1);
         assertThat(data.path("records").get(0).path("resultJudge").asText()).isEqualTo("PASS");
+        assertThat(data.path("records").get(0).path("reviewStatus").asText()).isEqualTo("PENDING");
+        String recordNo = data.path("records").get(0).path("recordNo").asText();
         Integer records = jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM qc_record WHERE task_id = (SELECT id FROM qc_task WHERE task_no = ?)",
                 Integer.class,
                 data.path("taskNo").asText()
         );
         assertThat(records).isEqualTo(1);
+
+        ResponseEntity<String> listResponse = restTemplate.exchange(
+                "/api/records",
+                HttpMethod.GET,
+                new HttpEntity<>(headers),
+                String.class
+        );
+        JsonNode listData = objectMapper.readTree(listResponse.getBody()).path("data");
+        JsonNode listItem = findRecord(listData, recordNo);
+        assertThat(listItem.path("thumbnailImagePath").asText()).isNotBlank();
+
+        HttpHeaders reviewHeaders = new HttpHeaders();
+        reviewHeaders.putAll(headers);
+        reviewHeaders.setContentType(MediaType.APPLICATION_JSON);
+        ResponseEntity<String> reviewResponse = restTemplate.exchange(
+                "/api/records/" + recordNo + "/review",
+                HttpMethod.POST,
+                new HttpEntity<>("""
+                        {"reviewStatus":"MISSED","reviewRemark":"人工确认漏报"}
+                        """, reviewHeaders),
+                String.class
+        );
+        JsonNode reviewedRecord = objectMapper.readTree(reviewResponse.getBody()).path("data");
+        assertThat(reviewedRecord.path("reviewStatus").asText()).isEqualTo("MISSED");
     }
 
     @Test
@@ -213,6 +239,15 @@ class BrowserInferenceIntegrationTest {
                 String.class
         );
         return objectMapper.readTree(response.getBody()).path("data");
+    }
+
+    private JsonNode findRecord(JsonNode records, String recordNo) {
+        for (JsonNode record : records) {
+            if (recordNo.equals(record.path("recordNo").asText())) {
+                return record;
+            }
+        }
+        throw new AssertionError("Record not found: " + recordNo);
     }
 
     private ResponseEntity<String> postMultipart(

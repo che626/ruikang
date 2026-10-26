@@ -75,7 +75,7 @@ const defectSampleItems = computed(() => {
 });
 
 const trendItems = computed(() => {
-  const targetFps = Math.max(1, stream.status.value?.targetInferenceFps ?? 10);
+  const targetFps = Math.max(1, stream.status.value?.targetInferenceFps ?? 60);
   return stream.performanceSamples.value.map((sample) => {
     const latency = sample.latency;
     const cappedFps = Math.min(sample.fps, targetFps);

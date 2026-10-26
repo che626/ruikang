@@ -38,7 +38,7 @@ const runtime = ref<RealtimeStatus>({
   confidenceThreshold: 0.45,
   iouThreshold: 0.42,
   continuousHitFrames: 4,
-  targetInferenceFps: 10,
+  targetInferenceFps: 60,
   evidenceImageCount: 3,
 });
 

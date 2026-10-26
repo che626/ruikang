@@ -25,7 +25,6 @@ import java.util.UUID;
 @Service
 public class ImageInspectionTaskService {
 
-    private static final DateTimeFormatter TASK_FORMAT = DateTimeFormatter.ofPattern("yyyyMMddHHmmss");
     private static final DateTimeFormatter DATE_PATH_FORMAT = DateTimeFormatter.ofPattern("yyyy/MM/dd");
 
     private final JdbcTemplate jdbcTemplate;
@@ -54,7 +53,7 @@ public class ImageInspectionTaskService {
         resultValidator.validateModelHash(payload.modelSha256());
         validateFileLists(payload.records(), sourceFiles, resultFiles);
 
-        String taskNo = "IMG-" + LocalDateTime.now().format(TASK_FORMAT) + randomSuffix();
+        String taskNo = "IMG-" + randomSuffix();
         Long modelId = catalogService.getActiveModelId();
         Long cameraId = catalogService.getPrimaryCameraId();
 
@@ -88,7 +87,7 @@ public class ImageInspectionTaskService {
             );
 
             StoredImagePair storedFiles = storeImagePair(taskNo, index, clientResult, sourceFile, resultFile);
-            String recordNo = "REC-" + LocalDateTime.now().format(TASK_FORMAT) + randomSuffix();
+            String recordNo = "REC-" + randomSuffix();
             String resultJudge = detections.isEmpty() ? "PASS" : "FAIL";
             String resultSummary = detections.isEmpty()
                     ? "未检测到缺陷"
@@ -104,7 +103,7 @@ public class ImageInspectionTaskService {
                         confidence_score, defect_count, result_summary, inference_time_ms, preprocess_time_ms,
                         postprocess_time_ms, review_status, inspect_time
                     )
-                    VALUES (?, ?, ?, ?, 'image', 'upload', ?, ?, ?, ?, ?, ?, ?, 'CONFIRMED', CURRENT_TIMESTAMP)
+                    VALUES (?, ?, ?, ?, 'image', 'upload', ?, ?, ?, ?, ?, ?, ?, 'PENDING', CURRENT_TIMESTAMP)
                     """,
                     recordNo,
                     taskId,
@@ -139,7 +138,7 @@ public class ImageInspectionTaskService {
             responses.add(new ImageInspectionRecordResponse(
                     recordNo,
                     resultJudge,
-                    "CONFIRMED",
+                    "PENDING",
                     detections.size(),
                     topConfidence,
                     clientResult.preprocessTimeMs(),
@@ -162,7 +161,7 @@ public class ImageInspectionTaskService {
     }
 
     public ImageInspectionTaskResponse createTask(List<String> fileNames, String remark) {
-        String taskNo = "IMG-" + LocalDateTime.now().format(TASK_FORMAT) + randomSuffix();
+        String taskNo = "IMG-" + randomSuffix();
         jdbcTemplate.update("""
                 INSERT INTO qc_task (
                     task_no, task_name, task_type, task_status, total_image_count, processed_image_count, remark
@@ -310,7 +309,7 @@ public class ImageInspectionTaskService {
             String resultSummary,
             String titlePrefix
     ) {
-        String exceptionNo = "EX-" + LocalDateTime.now().format(TASK_FORMAT) + randomSuffix();
+        String exceptionNo = "EX-" + randomSuffix();
         jdbcTemplate.update("""
                 INSERT INTO qc_exception (
                     exception_no, record_id, task_id, exception_level, exception_title, exception_desc, status
@@ -430,7 +429,7 @@ public class ImageInspectionTaskService {
     }
 
     private String randomSuffix() {
-        return UUID.randomUUID().toString().substring(0, 6);
+        return UUID.randomUUID().toString().replace("-", "").substring(0, 8).toUpperCase(Locale.ROOT);
     }
 
     private record StoredImagePair(
