@@ -59,6 +59,32 @@ const defectRank = computed(() =>
 
 const maxDefectCount = computed(() => Math.max(1, ...defectRank.value.map((item) => item.count)));
 
+const PIE_COLORS = ["#1677ff", "#52c41a", "#ff4d4f", "#fa8c16", "#13c2c2", "#722ed1", "#eb2f96"];
+
+const pieSlices = computed(() => {
+  const total = defectRank.value.reduce((s, i) => s + i.count, 0);
+  if (!total) return [];
+  const cx = 90, cy = 90, r = 80;
+  let angle = -Math.PI / 2;
+  return defectRank.value.map((item, idx) => {
+    const slice = (item.count / total) * 2 * Math.PI;
+    const x1 = cx + r * Math.cos(angle);
+    const y1 = cy + r * Math.sin(angle);
+    angle += slice;
+    const x2 = cx + r * Math.cos(angle);
+    const y2 = cy + r * Math.sin(angle);
+    const large = slice > Math.PI ? 1 : 0;
+    const color = defectTypes.value.find(d => d.defectCode === item.code)?.displayColor ?? PIE_COLORS[idx % PIE_COLORS.length];
+    return {
+      d: `M ${cx} ${cy} L ${x1} ${y1} A ${r} ${r} 0 ${large} 1 ${x2} ${y2} Z`,
+      color,
+      pct: Math.round((item.count / total) * 100),
+      name: item.name,
+      count: item.count,
+    };
+  });
+});
+
 const overview = computed(() => {
   const failCount = records.value.filter((record) => record.resultJudge === "FAIL").length;
   const falseAlarm = records.value.filter((record) => record.reviewStatus === "FALSE_ALARM").length;
@@ -364,16 +390,37 @@ onMounted(loadData);
           </div>
           <em>{{ defectRank.length }} 类</em>
         </div>
-        <div v-if="defectRank.length" class="defect-heat-list">
-          <div v-for="item in defectRank" :key="item.code" class="defect-heat-item">
-            <div class="defect-heat-meta">
-              <strong>{{ item.name }}</strong>
-              <span>{{ item.code }}</span>
+        <div v-if="defectRank.length" class="defect-rank-with-pie">
+          <div class="defect-heat-list">
+            <div v-for="item in defectRank" :key="item.code" class="defect-heat-item">
+              <div class="defect-heat-meta">
+                <strong>{{ item.name }}</strong>
+                <span>{{ item.code }}</span>
+              </div>
+              <div class="defect-heat-track">
+                <i :style="{ width: `${Math.max(8, Math.round((item.count / maxDefectCount) * 100))}%` }"></i>
+              </div>
+              <b>{{ item.count }}</b>
             </div>
-            <div class="defect-heat-track">
-              <i :style="{ width: `${Math.max(8, Math.round((item.count / maxDefectCount) * 100))}%` }"></i>
+          </div>
+          <div class="defect-pie-wrap">
+            <svg viewBox="0 0 180 180" class="defect-pie-svg">
+              <path
+                v-for="(slice, idx) in pieSlices"
+                :key="idx"
+                :d="slice.d"
+                :fill="slice.color"
+                opacity="0.9"
+              />
+            </svg>
+            <div class="defect-pie-legend">
+              <div v-for="(slice, idx) in pieSlices" :key="idx" class="pie-legend-item">
+                <span class="pie-legend-dot" :style="{ background: slice.color }"></span>
+                <span class="pie-legend-name">{{ slice.name }}</span>
+                <span class="pie-legend-count">{{ slice.count }}</span>
+                <span class="pie-legend-pct">{{ slice.pct }}%</span>
+              </div>
             </div>
-            <b>{{ item.count }}</b>
           </div>
         </div>
         <div v-else class="report-empty-state small">暂无异常记录。</div>

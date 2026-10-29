@@ -153,8 +153,7 @@ onMounted(loadSection);
       <a-table-column title="输入尺寸" data-index="inputSize" key="inputSize" />
       <a-table-column title="资源策略" key="strategy">
         <template #default="{ record }">
-          {{ record.browserPreferWebGpu ? "浏览器优先 WebGPU" : "浏览器 WASM" }} /
-          {{ record.browserFallbackWasm ? "可回退 WASM" : "仅 WebGPU" }}
+          浏览器 WASM（CPU）
         </template>
       </a-table-column>
       <a-table-column title="使用状态" key="active">

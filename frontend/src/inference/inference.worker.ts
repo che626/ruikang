@@ -89,21 +89,9 @@ async function initialize(nextManifest: BrowserInferenceManifest) {
   }
 
   const initializationStartedAt = performance.now();
-  if (await hasWebGpuAdapter()) {
-    try {
-      session = await ort.InferenceSession.create(modelBytes, {
-        executionProviders: ["webgpu", "wasm"],
-        graphOptimizationLevel: "all",
-      });
-      providerStrategy = "WebGPU/WASM";
-    } catch {
-      session = await createWasmSession(modelBytes);
-      providerStrategy = "WASM";
-    }
-  } else {
-    session = await createWasmSession(modelBytes);
-    providerStrategy = "WASM";
-  }
+  // Force WASM (CPU) execution — skip WebGPU probe
+  session = await createWasmSession(modelBytes);
+  providerStrategy = "WASM";
   const initializationTimeMs = Math.round(performance.now() - initializationStartedAt);
 
   const warmupStartedAt = performance.now();

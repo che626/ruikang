@@ -14,7 +14,7 @@ const formState = reactive<Required<RealtimeConfigPayload>>({
   evidenceImageCount: 3,
 });
 
-const videoRef = ref<HTMLVideoElement | null>(null);
+const settingsOpen = ref(false);
 const overlayCanvasRef = ref<HTMLCanvasElement | null>(null);
 let syncingConfig = false;
 let configReady = false;
@@ -175,151 +175,80 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <section class="realtime-grid">
-    <article class="card panel-column">
-      <div class="card-head">
-        <div>
-          <span>运行控制</span>
-          <h3>实时参数</h3>
-        </div>
-        <em>{{ stream.status.value?.runtimeStatus ?? "IDLE" }}</em>
+  <section class="rt-page">
+    <aside class="card rt-param-panel">
+      <div class="rt-param-head">
+        <span class="rt-param-title">检测参数</span>
+        <span :class="['rt-run-badge', stream.running.value ? 'running' : 'idle']">
+          {{ stream.running.value ? '运行中' : '未运行' }}
+        </span>
+        <button class="rt-settings-btn" @click="settingsOpen = true">⚙ 设置</button>
       </div>
+      <div class="rt-param-readonly-grid">
+        <div class="rt-param-ro-item"><span>置信度</span><strong>{{ formState.confidenceThreshold.toFixed(2) }}</strong></div>
+        <div class="rt-param-ro-item"><span>IOU 阈值</span><strong>{{ formState.iouThreshold.toFixed(2) }}</strong></div>
+        <div class="rt-param-ro-item"><span>连续命中</span><strong>{{ formState.continuousHitFrames }} 帧</strong></div>
+        <div class="rt-param-ro-item"><span>目标帧率</span><strong>{{ formState.targetInferenceFps }} FPS</strong></div>
+        <div class="rt-param-ro-item rt-param-ro-full"><span>证据图数</span><strong>{{ formState.evidenceImageCount }} 张</strong></div>
+      </div>
+      <div class="rt-action-row">
+        <a-button type="primary" :loading="stream.loading.value" :disabled="stream.running.value" class="rt-btn-start" @click="handleStart">
+          {{ stream.loading.value ? stream.modelLoadingStage.value : '⊙ 启动检测' }}
+        </a-button>
+        <a-button danger :loading="stream.loading.value" :disabled="!stream.running.value" class="rt-btn-stop" @click="handleStop">
+          ⊗ 停止检测
+        </a-button>
+      </div>
+    </aside>
 
-      <div class="slider-stack">
-        <div class="slider-field">
-          <div class="slider-label">
-            <span>置信度阈值</span>
-            <strong>{{ formState.confidenceThreshold.toFixed(2) }}</strong>
+    <div class="rt-main">
+      <article class="card rt-video-card">
+        <div class="rt-video-head">
+          <span class="rt-video-title">视频监控</span>
+          <span :class="['rt-live-badge', stream.running.value ? 'active' : '']">
+            {{ stream.running.value ? '正在检测' : '未启动' }}
+          </span>
+        </div>
+        <div class="rt-video-stage">
+          <video ref="videoRef" :class="{ hidden: !stream.running.value }" autoplay muted playsinline class="rt-video-el" @loadedmetadata="resizeOverlayCanvas"></video>
+          <canvas ref="overlayCanvasRef" class="rt-canvas overlay-canvas"></canvas>
+          <div v-if="!stream.running.value" class="rt-video-placeholder">
+            <span>实时监控未启动</span>
+            <small>点击左侧启动后开始检测</small>
           </div>
+        </div>
+        <div class="rt-stats-bar">
+          <div class="rt-stat"><span>摄像头</span><strong>{{ stream.status.value?.cameraName ?? '-' }}</strong></div>
+          <div class="rt-stat"><span>预览帧率</span><strong>{{ stream.status.value?.previewFps ?? 0 }} FPS</strong></div>
+          <div class="rt-stat"><span>推理帧率</span><strong>{{ stream.status.value?.inferenceFps ?? 0 }} FPS</strong></div>
+          <div class="rt-stat"><span>延迟</span><strong>{{ stream.status.value?.latencyMs ?? 0 }} ms</strong></div>
+        </div>
+      </article>
+    </div>
+
+    <a-modal v-model:open="settingsOpen" title="检测参数设置" ok-text="保存设置" cancel-text="取消" :width="520" @ok="settingsOpen = false">
+      <div class="rt-modal-sliders">
+        <div class="rt-modal-field">
+          <div class="rt-modal-label"><span>置信度阈值</span><strong>{{ formState.confidenceThreshold.toFixed(2) }}</strong></div>
           <a-slider v-model:value="formState.confidenceThreshold" :step="0.01" :min="0.01" :max="0.99" />
         </div>
-
-        <div class="slider-field">
-          <div class="slider-label">
-            <span>IOU 阈值</span>
-            <strong>{{ formState.iouThreshold.toFixed(2) }}</strong>
-          </div>
+        <div class="rt-modal-field">
+          <div class="rt-modal-label"><span>IOU 阈值</span><strong>{{ formState.iouThreshold.toFixed(2) }}</strong></div>
           <a-slider v-model:value="formState.iouThreshold" :step="0.01" :min="0.01" :max="0.99" />
         </div>
-
-        <div class="slider-field">
-          <div class="slider-label">
-            <span>连续命中帧数</span>
-            <strong>{{ formState.continuousHitFrames }}</strong>
-          </div>
+        <div class="rt-modal-field">
+          <div class="rt-modal-label"><span>连续命中帧数</span><strong>{{ formState.continuousHitFrames }}</strong></div>
           <a-slider v-model:value="formState.continuousHitFrames" :step="1" :min="1" :max="20" />
         </div>
-
-        <div class="slider-field">
-          <div class="slider-label">
-            <span>目标推理帧率</span>
-            <strong>{{ formState.targetInferenceFps }} FPS</strong>
-          </div>
+        <div class="rt-modal-field">
+          <div class="rt-modal-label"><span>目标推理帧率</span><strong>{{ formState.targetInferenceFps }} FPS</strong></div>
           <a-slider v-model:value="formState.targetInferenceFps" :step="1" :min="1" :max="60" />
         </div>
-
-        <div class="slider-field">
-          <div class="slider-label">
-            <span>证据图数量</span>
-            <strong>{{ formState.evidenceImageCount }}</strong>
-          </div>
+        <div class="rt-modal-field">
+          <div class="rt-modal-label"><span>证据图数量</span><strong>{{ formState.evidenceImageCount }}</strong></div>
           <a-slider v-model:value="formState.evidenceImageCount" :step="1" :min="1" :max="5" />
         </div>
       </div>
-
-      <div class="button-row">
-        <a-button type="primary" :loading="stream.loading.value" :disabled="stream.running.value" @click="handleStart">
-          {{ stream.loading.value ? stream.modelLoadingStage.value : "启动实时质检" }}
-        </a-button>
-        <a-button
-          class="secondary-blue-action"
-          type="primary"
-          :loading="stream.loading.value"
-          :disabled="!stream.running.value"
-          @click="handleStop"
-        >
-          关闭实时质检
-        </a-button>
-      </div>
-    </article>
-
-    <article class="card panel-column">
-      <div class="card-head">
-        <div>
-          <span>实时预览</span>
-          <h3>本地视频预览与缺陷框</h3>
-        </div>
-        <em>{{ stream.status.value?.providerStrategy ?? "N/A" }}</em>
-      </div>
-
-      <div class="realtime-preview local">
-        <video
-          ref="videoRef"
-          :class="{ hidden: !stream.running.value }"
-          autoplay
-          muted
-          playsinline
-          @loadedmetadata="resizeOverlayCanvas"
-        ></video>
-        <canvas ref="overlayCanvasRef" class="overlay-canvas"></canvas>
-        <div v-if="!stream.running.value" class="preview-placeholder">
-          <strong>实时监控未启动</strong>
-          <span>点击左侧启动后才会打开摄像头并开始检测。</span>
-        </div>
-      </div>
-
-      <div class="detail-grid">
-        <div class="summary-item"><span>摄像头</span><strong>{{ stream.status.value?.cameraName ?? "-" }}</strong></div>
-        <div class="summary-item"><span>预览帧率</span><strong>{{ stream.status.value?.previewFps ?? 0 }} FPS</strong></div>
-        <div class="summary-item"><span>推理帧率</span><strong>{{ stream.status.value?.inferenceFps ?? 0 }} FPS</strong></div>
-        <div class="summary-item"><span>延迟</span><strong>{{ stream.status.value?.latencyMs ?? 0 }} ms</strong></div>
-      </div>
-
-      <div class="detail-grid">
-        <div class="summary-item"><span>当前结论</span><strong>{{ stream.latestResultJudge.value }}</strong></div>
-        <div class="summary-item"><span>缺陷类型</span><strong>{{ stream.latestDefectType.value ?? "-" }}</strong></div>
-        <div class="summary-item">
-          <span>置信度</span>
-          <strong>{{ stream.latestConfidence.value == null ? "-" : stream.latestConfidence.value.toFixed(3) }}</strong>
-        </div>
-        <div class="summary-item"><span>检测说明</span><strong>{{ stream.latestResultSummary.value }}</strong></div>
-      </div>
-    </article>
-
-    <article class="card panel-column realtime-history-card">
-      <div class="card-head">
-        <div>
-          <span>实时事件</span>
-          <h3>事件流</h3>
-        </div>
-        <a-button class="clear-action" size="small" type="primary" @click="handleClearHistory">清除</a-button>
-      </div>
-      <div v-if="stream.events.value.length" class="event-column realtime-scroll-area">
-        <div v-for="ev in stream.events.value" :key="`${ev.eventTime}-${ev.title}`" class="event-item">
-          <strong>{{ ev.title }}</strong>
-          <span>{{ ev.message }}</span>
-          <small>{{ ev.eventTime }}</small>
-        </div>
-      </div>
-      <div v-else class="empty-card compact-empty">暂无实时事件。</div>
-    </article>
-
-    <article class="card panel-column realtime-history-card">
-      <div class="card-head">
-        <div>
-          <span>证据图</span>
-          <h3>最近异常保存</h3>
-        </div>
-        <a-button class="clear-action" size="small" type="primary" @click="handleClearHistory">清除</a-button>
-      </div>
-      <div v-if="stream.evidence.value.length" class="evidence-strip realtime-scroll-area evidence-scroll-area">
-        <div v-for="item in stream.evidence.value" :key="`${item.recordNo}-${item.relativePath}`" class="evidence-card">
-          <img :src="evidencePreviewUrl(item.relativePath)" alt="证据图" />
-          <span>{{ item.recordNo }}</span>
-          <strong>{{ item.fileType }}</strong>
-        </div>
-      </div>
-      <div v-else class="empty-card compact-empty">还没有异常证据图。</div>
-    </article>
+    </a-modal>
   </section>
 </template>

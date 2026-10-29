@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from "vue";
 import { message } from "ant-design-vue";
 import {
@@ -67,6 +67,34 @@ const loadingRecords = ref(false);
 const loadingDetail = ref(false);
 const submittingReview = ref(false);
 const clearingRecords = ref(false);
+const searchKeyword = ref("");
+const resultFilter = ref("ALL");
+const drawerOpen = ref(false);
+
+const displayedRecords = computed(() => {
+  return records.value.filter((item) => {
+    const keyMatch = !searchKeyword.value || item.recordNo.toLowerCase().includes(searchKeyword.value.toLowerCase());
+    const resultMatch = resultFilter.value === "ALL" || (resultFilter.value === "FAIL" && item.resultJudge !== "PASS") || (resultFilter.value === "PASS" && item.resultJudge === "PASS");
+    const reviewMatch = reviewFilter.value === "ALL" || item.reviewStatus === reviewFilter.value;
+    return keyMatch && resultMatch && reviewMatch;
+  });
+});
+
+function doSearch() {
+  // displayedRecords computed auto-updates
+}
+
+function doReset() {
+  searchKeyword.value = "";
+  resultFilter.value = "ALL";
+  reviewFilter.value = "ALL";
+}
+
+async function openDetail(recordNo: string) {
+  drawerOpen.value = true;
+  await chooseRecord(recordNo);
+}
+
 
 const inspectionTypeOptions = computed(() => [
   {
@@ -451,232 +479,130 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <section class="records-workspace">
-    <article class="card records-gallery-panel">
-      <div class="card-head records-gallery-head">
-        <div>
-          <span>批量浏览</span>
-          <h3>质检记录</h3>
+  <section class="rp-page">
+    <div class="card rp-filter-bar">
+      <div class="rp-filter-row">
+        <div class="rp-filter-item">
+          <label>记录编号</label>
+          <a-input v-model:value="searchKeyword" placeholder="请输入编号或检测摘要" allow-clear />
         </div>
-        <div class="records-count">
-          <strong>{{ filteredRecords.length }}</strong>
-          <span v-if="workspaceMode === 'expert'">/ {{ expertSampleSize }} 张</span>
-          <span v-else>/ {{ records.length }} 条</span>
+        <div class="rp-filter-item">
+          <label>检测结果</label>
+          <a-select v-model:value="resultFilter" style="width:120px">
+            <a-select-option value="ALL">全部</a-select-option>
+            <a-select-option value="FAIL">不合格</a-select-option>
+            <a-select-option value="PASS">合格</a-select-option>
+          </a-select>
+        </div>
+        <div class="rp-filter-item">
+          <label>复核状态</label>
+          <a-select v-model:value="reviewFilter" style="width:120px">
+            <a-select-option value="ALL">全部</a-select-option>
+            <a-select-option value="PENDING">待复核</a-select-option>
+            <a-select-option value="PASS">通过</a-select-option>
+            <a-select-option value="REJECTED">不通过</a-select-option>
+            <a-select-option value="MISSED">漏报</a-select-option>
+            <a-select-option value="FALSE_ALARM">误报</a-select-option>
+          </a-select>
+        </div>
+        <div class="rp-filter-actions">
+          <a-button type="primary" @click="doSearch">搜索</a-button>
+          <a-button @click="doReset">重置</a-button>
         </div>
       </div>
+    </div>
 
-      <div class="records-toolbar">
-        <a-segmented
-          :value="workspaceMode"
-          class="workspace-mode-switch"
-          :options="workspaceModeOptions"
-          @change="changeWorkspaceMode"
-        />
-        <a-segmented
-          :value="inspectionTypeFilter"
-          class="inspection-type-switch"
-          :options="inspectionTypeOptions"
-          @change="changeInspectionType"
-        />
-        <a-segmented
-          v-if="workspaceMode === 'review'"
-          v-model:value="reviewFilter"
-          class="records-filter"
-          :options="filterOptions"
-          size="small"
-        />
-        <div v-if="workspaceMode === 'expert'" class="expert-scoreboard">
-          <div>
-            <span>{{ currentExpertTypeLabel }}样本</span>
-            <strong>{{ expertRecords.length }} / {{ expertSampleSize }}</strong>
-          </div>
-          <div>
-            <span>已判定</span>
-            <strong>{{ expertReviewedCount }}</strong>
-          </div>
-          <div class="is-correct">
-            <span>正确</span>
-            <strong>{{ expertCorrectCount }}</strong>
-          </div>
-          <div class="is-wrong">
-            <span>错误</span>
-            <strong>{{ expertWrongCount }}</strong>
-          </div>
-          <div class="is-score">
-            <span>最终得分</span>
-            <strong>{{ expertScore.toFixed(2) }} / 35</strong>
-          </div>
-        </div>
-        <div v-if="workspaceMode === 'expert'" class="expert-progress">
-          <span :style="{ width: `${Math.min(100, (expertReviewedCount / expertSampleSize) * 100)}%` }"></span>
-        </div>
-        <div class="records-toolbar-meta">
-          <span v-if="workspaceMode === 'expert'">
-            {{
-              expertEvaluationComplete
-                ? `评测完成，正确率 ${expertAccuracy.toFixed(1)}%`
-                : `${currentExpertTypeLabel}最新20张记录，每张正确计 ${scorePerCorrectSample.toFixed(2)} 分`
-            }}
-          </span>
-          <span v-else>已复核 {{ reviewedCount }} 条</span>
-          <a-popconfirm
-            title="确定清空全部质检记录吗？"
-            ok-text="清空"
-            cancel-text="取消"
-            :disabled="records.length === 0"
-            @confirm="clearAllRecords"
-          >
-            <a-button
-              class="clear-action"
-              size="small"
-              danger
-              :disabled="records.length === 0"
-              :loading="clearingRecords"
-            >
-              清空记录
-            </a-button>
+    <div class="card rp-table-card">
+      <div class="rp-table-head">
+        <span class="rp-table-title">质检记录</span>
+        <div class="rp-table-actions">
+          <a-popconfirm title="确定清空全部质检记录吗？" ok-text="清空" cancel-text="取消" :disabled="records.length === 0" @confirm="clearAllRecords">
+            <a-button danger size="small" :disabled="records.length === 0" :loading="clearingRecords">清空记录</a-button>
           </a-popconfirm>
+          <a-button size="small" @click="loadRecords()">刷新</a-button>
         </div>
       </div>
-
       <a-spin :spinning="loadingRecords">
-        <div v-if="filteredRecords.length" class="record-gallery">
-          <button
-            v-for="item in filteredRecords"
-            :key="item.recordNo"
-            :class="['record-thumb', { active: item.recordNo === currentDetail?.recordNo }]"
-            type="button"
-            @click="chooseRecord(item.recordNo)"
-          >
-            <span class="record-thumb-image">
-              <img
-                v-if="item.thumbnailImagePath"
-                :src="filePreviewUrl(item.thumbnailImagePath)"
-                :alt="`${item.recordNo} 质检缩略图`"
-                loading="lazy"
-              />
-              <span v-else class="record-thumb-empty">暂无图片</span>
-              <em
-                :class="[
-                  'review-badge',
-                  workspaceMode === 'expert'
-                    ? expertDecisionTone(item.reviewStatus)
-                    : reviewTone(item.reviewStatus),
-                ]"
-              >
-                {{
-                  workspaceMode === "expert"
-                    ? expertDecisionText(item.reviewStatus)
-                    : reviewText(item.reviewStatus)
-                }}
-              </em>
-            </span>
-            <span class="record-thumb-body">
-              <strong>{{ item.recordNo }}</strong>
-              <span>{{ machineJudgeText(item.resultJudge) }}</span>
-              <small>{{ inspectTypeText(item.inspectType) }} · {{ formatInspectTime(item.inspectTime) }}</small>
-            </span>
-          </button>
-        </div>
-        <div v-else class="empty-card record-gallery-empty">
-          {{
-            workspaceMode === "expert"
-              ? `暂无${currentExpertTypeLabel}记录，请先完成该类样本采集`
-              : records.length
-                ? "当前筛选条件下没有记录"
-                : "暂无质检记录"
-          }}
-        </div>
+        <a-table
+          :data-source="displayedRecords"
+          row-key="recordNo"
+          :pagination="{ pageSize: 10, showTotal: (total) => '共 ' + total + ' 条记录', showQuickJumper: true }"
+          size="middle"
+          :locale="{ emptyText: '暂无质检记录' }"
+        >
+          <a-table-column title="序号" key="index" width="60px">
+            <template #default="{ index }">{{ index + 1 }}</template>
+          </a-table-column>
+          <a-table-column title="记录编号" key="recordNo">
+            <template #default="{ record }">
+              <a class="rp-record-link" @click="openDetail(record.recordNo)">{{ record.recordNo }}</a>
+            </template>
+          </a-table-column>
+          <a-table-column title="检测方式" data-index="inspectType" key="inspectType" width="100px" />
+          <a-table-column title="检测结果" key="resultJudge" width="90px">
+            <template #default="{ record }">
+              <span :class="['rp-badge', record.resultJudge === 'PASS' ? 'rp-badge-pass' : 'rp-badge-fail']">
+                {{ record.resultJudge === 'PASS' ? '合格' : '不合格' }}
+              </span>
+            </template>
+          </a-table-column>
+          <a-table-column title="缺陷数量" data-index="defectCount" key="defectCount" width="80px" />
+          <a-table-column title="复核状态" key="reviewStatus" width="90px">
+            <template #default="{ record }">
+              <span :class="['rp-review-tag', reviewTone(record.reviewStatus)]">{{ reviewText(record.reviewStatus) }}</span>
+            </template>
+          </a-table-column>
+          <a-table-column title="检测摘要" key="summary">
+            <template #default="{ record }">
+              <span class="rp-summary">{{ record.summary ?? '--' }}</span>
+            </template>
+          </a-table-column>
+          <a-table-column title="检测时间" key="inspectTime" width="160px">
+            <template #default="{ record }">{{ formatInspectTime(record.inspectTime) }}</template>
+          </a-table-column>
+          <a-table-column title="操作" key="action" width="80px">
+            <template #default="{ record }">
+              <a class="rp-view-link" @click="openDetail(record.recordNo)">查看</a>
+            </template>
+          </a-table-column>
+        </a-table>
       </a-spin>
-    </article>
+    </div>
 
-    <article class="card records-detail-panel">
-      <div class="card-head records-detail-head">
-        <div>
-          <span>记录详情与人工复核</span>
-          <h3>{{ currentDetail?.recordNo ?? "请选择一条记录" }}</h3>
-        </div>
-        <div v-if="currentDetail" class="detail-status-group">
-          <em :class="['machine-badge', currentDetail.resultJudge === 'PASS' ? 'is-pass' : 'is-fail']">
-            {{ currentDetail.resultJudge === "PASS" ? "机器合格" : "机器缺陷" }}
-          </em>
-          <em :class="['review-badge', reviewTone(currentDetail.reviewStatus)]">
-            人工：{{ currentReviewText }}
-          </em>
-        </div>
-      </div>
-
+    <a-drawer v-model:open="drawerOpen" title="记录详情" placement="right" width="600" :destroy-on-close="true">
       <a-spin :spinning="loadingDetail">
         <template v-if="currentDetail">
-          <div class="records-image-compare">
+          <div class="rp-detail-badges">
+            <em :class="['machine-badge', currentDetail.resultJudge === 'PASS' ? 'is-pass' : 'is-fail']">
+              {{ currentDetail.resultJudge === 'PASS' ? '机器合格' : '机器缺陷' }}
+            </em>
+            <em :class="['review-badge', reviewTone(currentDetail.reviewStatus)]">
+              人工：{{ currentReviewText }}
+            </em>
+          </div>
+          <div class="records-image-compare" style="margin:16px 0">
             <figure class="records-preview">
               <figcaption>原图</figcaption>
               <div class="records-preview-stage">
-                <img
-                  v-if="currentDetail.sourceImagePath"
-                  :src="filePreviewUrl(currentDetail.sourceImagePath)"
-                  alt="质检原图"
-                />
+                <img v-if="currentDetail.sourceImagePath" :src="filePreviewUrl(currentDetail.sourceImagePath)" alt="质检原图" />
                 <span v-else>未保存原图</span>
               </div>
             </figure>
             <figure class="records-preview">
               <figcaption>结果图</figcaption>
               <div class="records-preview-stage">
-                <img
-                  v-if="currentDetail.resultImagePath"
-                  :src="filePreviewUrl(currentDetail.resultImagePath)"
-                  alt="质检结果图"
-                />
+                <img v-if="currentDetail.resultImagePath" :src="filePreviewUrl(currentDetail.resultImagePath)" alt="质检结果图" />
                 <span v-else>未保存结果图</span>
               </div>
             </figure>
           </div>
-
           <div class="records-summary">
             <div><span>质检类型</span><strong>{{ currentDetail.inspectType }}</strong></div>
             <div><span>模型结论</span><strong>{{ currentDetail.resultJudge }}</strong></div>
             <div><span>缺陷数量</span><strong>{{ currentDetail.defectCount }}</strong></div>
-            <div>
-              <span>最高置信度</span>
-              <strong>{{ currentDetail.confidenceScore?.toFixed(3) ?? "-" }}</strong>
-            </div>
+            <div><span>最高置信度</span><strong>{{ currentDetail.confidenceScore?.toFixed(3) ?? '-' }}</strong></div>
           </div>
-
-          <div v-if="workspaceMode === 'expert'" class="records-review-section expert-review-section">
-            <div class="records-review-copy">
-              <span>专家评测</span>
-              <strong>判断当前模型推理结果是否正确</strong>
-            </div>
-            <div class="expert-current-result">
-              <span>模型结论：{{ currentDetail.resultJudge === "PASS" ? "合格" : "存在缺陷" }}</span>
-              <span>当前专家结论：{{ expertDecisionText(currentDetail.reviewStatus) }}</span>
-            </div>
-            <div class="expert-action-grid">
-              <button
-                type="button"
-                class="expert-action is-correct"
-                :disabled="submittingReview"
-                @click="submitExpertReview(true)"
-              >
-                <strong>判定正确</strong>
-                <span>模型结果与人工判断一致</span>
-              </button>
-              <button
-                type="button"
-                class="expert-action is-wrong"
-                :disabled="submittingReview"
-                @click="submitExpertReview(false)"
-              >
-                <strong>判定错误</strong>
-                <span>
-                  自动记录为{{ currentDetail.resultJudge === "PASS" ? "漏报" : "误报" }}
-                </span>
-              </button>
-            </div>
-          </div>
-
-          <div v-else class="records-review-section">
+          <div class="records-review-section" style="margin-top:16px">
             <div class="records-review-copy">
               <span>人工判定</span>
               <strong>选择该图片的最终复核结论</strong>
@@ -686,56 +612,35 @@ onBeforeUnmount(() => {
                 v-for="option in reviewOptions"
                 :key="option.value"
                 type="button"
-                :title="option.description"
-                :class="[
-                  'review-option',
-                  `review-${option.value.toLowerCase().replace('_', '-')}`,
-                  { active: selectedReview === option.value },
-                ]"
+                :class="['review-option', 'review-' + option.value.toLowerCase().replace('_', '-'), { active: selectedReview === option.value }]"
                 @click="selectedReview = option.value"
               >
                 <strong>{{ option.label }}</strong>
                 <span>{{ option.description }}</span>
               </button>
             </div>
-            <div class="review-submit-row">
-              <a-input
-                v-model:value="reviewRemark"
-                :maxlength="255"
-                placeholder="复核备注（可选）"
-                @press-enter="submitReview"
-              />
-              <a-button
-                type="primary"
-                :disabled="!selectedReview"
-                :loading="submittingReview"
-                @click="submitReview"
-              >
-                保存人工判定
-              </a-button>
+            <div class="review-submit-row" style="margin-top:10px">
+              <a-input v-model:value="reviewRemark" :maxlength="255" placeholder="复核备注（可选）" @press-enter="submitReview" />
+              <a-button type="primary" :disabled="!selectedReview" :loading="submittingReview" @click="submitReview">保存人工判定</a-button>
             </div>
           </div>
-
           <a-table
             class="records-detection-table"
             :pagination="false"
             size="small"
             :data-source="currentDetail.detections"
-            :row-key="(row) => `${row.defectCode}-${row.x1}-${row.y1}`"
+            :row-key="(row) => row.defectCode + '-' + row.x1 + '-' + row.y1"
             :locale="{ emptyText: '该记录没有检测框数据' }"
           >
             <a-table-column title="类别" data-index="defectName" key="defectName" />
             <a-table-column title="置信度" key="confidence">
-              <template #default="{ record }">{{ record.confidence.toFixed(3) }}</template>
+              <template #default="{ record: r }">{{ r.confidence.toFixed(3) }}</template>
             </a-table-column>
             <a-table-column title="面积" data-index="area" key="area" />
           </a-table>
         </template>
-
-        <div v-else class="empty-card records-detail-empty">
-          从左侧记录墙选择一张图片后，可在这里查看结果并进行人工判定。
-        </div>
+        <div v-else class="empty-card" style="min-height:200px">加载中...</div>
       </a-spin>
-    </article>
+    </a-drawer>
   </section>
 </template>

@@ -1,7 +1,15 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { useRouter } from "vue-router";
 import { fetchDashboardOverview, type DashboardOverview } from "@/api/dashboard";
 import { useRealtimeStream } from "@/composables/useRealtimeStream";
+
+const router = useRouter();
+const lastRefreshTime = ref("--:--:--");
+
+function updateRefreshTime() {
+  lastRefreshTime.value = new Date().toLocaleTimeString("zh-CN", { hour12: false });
+}
 
 const stream = useRealtimeStream();
 
@@ -47,7 +55,7 @@ const statusCounts = computed(() => {
 });
 
 const latestRealtimeImage = computed(() => {
-  if (!stream.running.value) return null;
+  // Show latest result even when not currently running (persists from last session)
   const newestByTime = (items: typeof stream.evidence.value) =>
     [...items].sort((a, b) => Date.parse(b.createTime) - Date.parse(a.createTime))[0] ?? null;
   const evidence =
@@ -58,6 +66,7 @@ const latestRealtimeImage = computed(() => {
     image: `/api/files/content?relativePath=${encodeURIComponent(evidence.relativePath)}`,
     caption: `瑕疵ID ${evidence.recordNo}`,
     tag: evidence.fileType === "result_image" ? "最新异常结果图" : "最新异常证据图",
+    recordNo: evidence.recordNo,
   };
 });
 
@@ -108,6 +117,7 @@ async function loadDashboard() {
     overview.value = overviewData;
     await stream.refresh();
     await bindDashboardVideo();
+    updateRefreshTime();
   } catch {
     // keep current data on fetch failure
   }
@@ -134,119 +144,177 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <section class="dashboard-sample">
-    <div class="sample-grid">
-      <div class="sample-center">
-        <article class="card sample-video-card result-focus-card">
-          <div class="card-title-row">
-            <span>实时质检图片</span>
-            <span class="tag">{{ latestRealtimeImage ? "最新异常" : "等待异常" }}</span>
-          </div>
-
-          <figure v-if="latestRealtimeImage" class="latest-result-figure">
-            <img :src="latestRealtimeImage.image" alt="最新实时质检异常结果图" />
-            <figcaption>
-              <strong>{{ latestRealtimeImage.caption }}</strong>
-              <span>{{ latestRealtimeImage.tag }}</span>
-            </figcaption>
-          </figure>
-          <div v-else class="result-empty-state">
-            <strong>暂无实时异常图片</strong>
-            <span>实时监控启动并检测到瑕疵后，这里只显示最新一次异常结果图。</span>
-          </div>
-        </article>
-
-        <div class="sample-bottom-row">
-          <article class="card sample-small-card trend-card">
-            <div class="card-title-row">
-              <span>趋势分析</span>
-              <span class="tag">近 5 次帧率</span>
-            </div>
-            <div class="trend-summary-row">
-              <div><span>最新推理帧率</span><strong>{{ latestTrend.fps }} FPS</strong></div>
-              <div><span>最新延迟</span><strong>{{ latestTrend.latency }} ms</strong></div>
-            </div>
-            <p class="trend-caption">近 5 次检测的实时性变化：帧率越高、延迟越低，画面响应越稳定。</p>
-            <div v-if="trendItems.length" class="trend-chart">
-              <div v-for="item in trendItems" :key="item.time" class="trend-column">
-                <div class="trend-bar-wrap">
-                  <div :class="['trend-bar', item.tone]" :style="{ height: item.height }"></div>
-                </div>
-                <strong>{{ item.fps }}</strong>
-                <span>{{ item.label }}</span>
-              </div>
-            </div>
-            <div v-else class="trend-empty">启动实时监控后开始记录帧率变化。</div>
-          </article>
-
-          <article class="card sample-small-card">
-            <div class="card-title-row">
-              <span>实时质检画面</span>
-              <span class="tag">{{ stream.running.value ? "LIVE" : "未启动" }}</span>
-            </div>
-            <div v-if="stream.running.value" class="sample-fabric stage-live camera-live">
-              <video ref="dashboardVideoRef" autoplay muted playsinline></video>
-            </div>
-            <div v-else class="sample-fabric monitor-idle">
-              <strong>实时监控未启动</strong>
-              <span>启动后这里会显示摄像头实时画面。</span>
-            </div>
-          </article>
-
-          <article class="card sample-small-card sample-pair-card">
-            <div class="card-title-row">
-              <span>缺陷样例</span>
-              <span class="tag">{{ defectSampleItems.length ? "最近样例" : "暂无样例" }}</span>
-            </div>
-            <div v-if="defectSampleItems.length" class="sample-tiles">
-              <figure v-for="item in defectSampleItems" :key="item.key" class="sample-tile">
-                <img :src="item.image" :alt="`${item.recordNo}${item.caption}`" />
-                <figcaption>
-                  <strong>{{ item.caption }}</strong>
-                  <span>{{ item.recordNo }}</span>
-                </figcaption>
-              </figure>
-            </div>
-            <div v-else class="sample-empty-state">
-              <strong>暂无缺陷样例</strong>
-              <span>检测并保存异常结果后，这里会显示最近样例。</span>
-            </div>
-          </article>
-
+  <section class="db-page">
+    <!-- 标题栏 -->
+    <div class="db-toolbar">
+      <div class="db-toolbar-left">
+        <span class="db-toolbar-title">检测数据概览</span>
+        <span class="db-toolbar-time">更新于 {{ lastRefreshTime }}</span>
+      </div>
+      <div class="db-toolbar-right">
+        <button class="db-btn-outline" @click="router.push('/image')">
+          <span>⊞</span> 图片质检
+        </button>
+        <button class="db-btn-primary" @click="router.push('/realtime')">
+          <span>▶</span> 实时监控
+        </button>
+        <button class="db-btn-icon" @click="loadDashboard" title="刷新">↻</button>
+      </div>
+    </div>
+    <!-- 顶部指标栏 -->
+    <div class="db-metrics">
+      <div v-for="m in overview.metrics" :key="m.label" class="db-metric-card">
+        <div class="db-metric-icon" :class="m.tone">
+          <span v-if="m.tone === 'success'">✓</span>
+          <span v-else-if="m.tone === 'warning'">△</span>
+          <span v-else-if="m.tone === 'danger'">✕</span>
+          <span v-else>◈</span>
+        </div>
+        <div class="db-metric-body">
+          <div class="db-metric-label">{{ m.label }}</div>
+          <div class="db-metric-value">{{ m.value }}</div>
         </div>
       </div>
-
-      <div class="sample-rightcol">
-        <article class="card sample-device-card">
-          <div class="card-title-row">设备状态</div>
-          <div class="sample-ring-row">
-            <div class="sample-ring"><span>{{ statusCounts.online }}</span><small>在线</small></div>
-            <div class="sample-ring orange"><span>{{ statusCounts.offline }}</span><small>离线</small></div>
-            <div class="sample-ring red"><span>{{ statusCounts.alarm }}</span><small>告警</small></div>
-          </div>
-        </article>
-
-        <article class="card sample-alarm-card">
-          <div class="card-title-row">
-            告警中心
-            <span class="danger">最近10条记录</span>
-          </div>
-          <div v-if="alertItems.length" class="dashboard-alert-list">
-            <div v-for="(item, index) in alertItems" :key="item.time + item.title + index" class="sample-alarm-row">
-              <div>
-                <strong>{{ item.title }}</strong>
-                <span>{{ item.message }}</span>
-              </div>
-              <em>{{ item.time }}</em>
-            </div>
-          </div>
-          <div v-else class="dashboard-alert-empty">告警中心暂无异常</div>
-        </article>
+      <div v-if="!overview.metrics.length" v-for="i in 4" :key="i" class="db-metric-card db-metric-placeholder">
+        <div class="db-metric-icon neutral"><span>◈</span></div>
+        <div class="db-metric-body">
+          <div class="db-metric-label">--</div>
+          <div class="db-metric-value">--</div>
+        </div>
       </div>
     </div>
 
-    <footer class="sample-footer">
-      版本：v2.1.0 | 服务运行状态：{{ stream.running.value ? "实时监控中" : "待机中" }}
-    </footer>
+    <!-- 中间双视频区 -->
+    <div class="db-video-row">
+      <!-- 左：实时摄像头 -->
+      <article class="card db-video-card">
+        <div class="db-video-head">
+          <span class="db-video-title">实时质检画面</span>
+          <span :class="['db-status-tag', stream.running.value ? 'running' : 'idle']">
+            {{ stream.running.value ? '监控中' : '未启动' }}
+          </span>
+        </div>
+        <div class="db-video-stage">
+          <template v-if="stream.running.value">
+            <video ref="dashboardVideoRef" autoplay muted playsinline class="db-video-el"></video>
+          </template>
+          <div v-else class="db-video-empty">
+            <span>实时监控未启动</span>
+          </div>
+        </div>
+        <div class="db-video-footer">
+          <span>{{ stream.status.value?.cameraName ?? 'Webcam 0' }}</span>
+          <a class="db-video-link" @click.prevent="router.push('/realtime')">摄像头设置</a>
+        </div>
+      </article>
+
+      <!-- 右：最新异常结果图 -->
+      <article class="card db-video-card">
+        <div class="db-video-head">
+          <span class="db-video-title">最新异常结果</span>
+          <a class="db-video-link" @click.prevent="router.push('/records')">查看记录</a>
+        </div>
+        <div class="db-video-stage">
+          <img v-if="latestRealtimeImage" :src="latestRealtimeImage.image" alt="最新异常结果图" class="db-result-img" />
+          <div v-else class="db-video-empty"><span>暂无异常结果</span></div>
+        </div>
+        <div class="db-video-footer">
+          <span>{{ latestRealtimeImage ? latestRealtimeImage.caption : '--' }}</span>
+          <span class="db-footer-tag">最新异常结果图</span>
+        </div>
+      </article>
+    </div>
+
+    <!-- 底部四列小卡片 -->
+    <div class="db-bottom-row">
+      <!-- 检测性能 -->
+      <article class="card db-bottom-card">
+        <div class="db-bottom-head">
+          <span>检测性能</span>
+          <span class="db-bottom-tag">最近 {{ trendItems.length || 8 }} 次采样</span>
+        </div>
+        <div class="db-perf-stats">
+          <div class="db-perf-item">
+            <span>推理帧率</span>
+            <strong>{{ latestTrend.fps }} <em>帧/秒</em></strong>
+          </div>
+          <div class="db-perf-item">
+            <span>处理延迟</span>
+            <strong>{{ latestTrend.latency }} <em>毫秒</em></strong>
+          </div>
+        </div>
+        <div v-if="trendItems.length" class="db-mini-chart">
+          <div v-for="item in trendItems" :key="item.time" class="db-mini-bar-col">
+            <div class="db-mini-bar-wrap">
+              <div :class="['db-mini-bar', item.tone]" :style="{ height: item.height }"></div>
+            </div>
+            <span>{{ item.fps }}</span>
+          </div>
+        </div>
+        <div v-else class="db-perf-empty">启动监控后记录帧率</div>
+      </article>
+
+      <!-- 实时告警 -->
+      <article class="card db-bottom-card db-alert-card">
+        <div class="db-bottom-head">
+          <span>实时告警</span>
+          <span class="db-bottom-tag">最近 10 条</span>
+        </div>
+        <div v-if="alertItems.length" class="db-alert-list">
+          <div v-for="(item, idx) in alertItems.slice(0, 5)" :key="idx" class="db-alert-row">
+            <span class="db-alert-icon">△</span>
+            <div class="db-alert-body">
+              <strong>{{ item.title }}</strong>
+              <span>{{ item.message }}</span>
+              <time>{{ item.time }}</time>
+            </div>
+          </div>
+        </div>
+        <div v-else class="db-perf-empty">暂无告警事件</div>
+      </article>
+
+      <!-- 设备状态 -->
+      <article class="card db-bottom-card">
+        <div class="db-bottom-head">
+          <span>设备状态</span>
+          <a class="db-video-link" @click.prevent="router.push('/config/camera')">配置</a>
+        </div>
+        <div class="db-device-list">
+          <div class="db-device-row">
+            <span>运行状态</span>
+            <strong :class="stream.running.value ? 'db-ok' : 'db-muted'">
+              {{ stream.running.value ? '运行中' : '已停止' }}
+            </strong>
+          </div>
+          <div class="db-device-row">
+            <span>当前摄像头</span>
+            <strong>{{ stream.status.value?.cameraName ?? 'Webcam 0' }}</strong>
+          </div>
+          <div class="db-device-row">
+            <span>推理帧率</span>
+            <strong>{{ latestTrend.fps }} 帧/秒</strong>
+          </div>
+          <div class="db-device-row">
+            <span>处理延迟</span>
+            <strong>{{ latestTrend.latency }} 毫秒</strong>
+          </div>
+        </div>
+      </article>
+
+      <!-- 缺陷样例 -->
+      <article class="card db-bottom-card">
+        <div class="db-bottom-head">
+          <span>缺陷样例</span>
+          <span class="db-bottom-tag">示例图片</span>
+        </div>
+        <div v-if="defectSampleItems.length" class="db-sample-grid">
+          <figure v-for="item in defectSampleItems" :key="item.key" class="db-sample-tile">
+            <img :src="item.image" :alt="item.caption" />
+            <figcaption>{{ item.caption }} {{ item.recordNo ? item.recordNo.slice(-4) : '' }}</figcaption>
+          </figure>
+        </div>
+        <div v-else class="db-perf-empty">检测到异常后显示</div>
+      </article>
+    </div>
   </section>
 </template>
