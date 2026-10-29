@@ -1,16 +1,29 @@
 # 织瑕智析
 
-织瑕智析是一套面向纺织面料质检场景的 AI 视觉应用系统，覆盖图片质检、摄像头实时监控、质检记录、缺陷分析、模型管理与 AIGC 辅助质量报告。
+织瑕智析是一套面向纺织面料质检场景的 AI 视觉应用系统，覆盖图片质检、摄像头实时监控、质检记录、人工复核、缺陷分析和 AIGC 辅助质量报告。
+
+系统在浏览器中运行面料缺陷检测模型，由 Spring Boot 后端提供模型分发、业务处理、数据存储和报告生成服务。
+
+## 主要功能
+
+- **图片质检**：选择多张面料图片，在浏览器中逐张检测并绘制缺陷框；检测结果、原图和结果图分批提交后保存。
+- **实时监控**：在浏览器中读取摄像头画面并执行推理，展示缺陷框、帧率和延迟；连续检测到缺陷后保存异常记录与证据图。
+- **质检记录**：按图片质检、实时质检和复核状态查看记录，支持通过、不通过、漏报、误报四种人工判定。
+- **专家评测**：按质检类型查看最新的 20 条记录，逐条判定正确或错误，按每条正确 1.75 分汇总得分。
+- **缺陷分析**：基于质检记录生成 AIGC 质量分析报告；未配置 DeepSeek API Key 时使用本地规则生成报告。
+- **系统管理**：查看模型、缺陷类型和摄像头配置，调整实时检测参数。
+
+专家评测使用记录已有的复核状态，并非独立的固定样本批次；新增记录或修改复核状态会影响评测结果。
 
 ## 技术栈
 
 - 前端：Vue 3、Vite、TypeScript、Ant Design Vue
-- 浏览器推理：ONNX Runtime Web、Web Worker、WebGPU / WASM、`ruikang.onnx`
+- 浏览器推理：ONNX Runtime Web、Web Worker、WebGPU / WASM、YOLO26s 导出的 `ruikang.onnx`
 - 后端：Spring Boot 3、Java 17、Spring JDBC
 - 数据库：MySQL 8.0+（容器环境使用 MySQL 8.4）
 - 部署：Docker Compose、Nginx
 
-实时监控和图片质检均在浏览器中执行模型推理。后端只负责模型分发、任务、记录、文件、异常、复核、分析和 AIGC 报告，不加载 ONNX Runtime、OpenCV、CUDA 或 cuDNN。
+实时监控和图片质检均在浏览器中执行模型推理。后端负责模型分发、任务、记录、文件、异常、复核、分析和 AIGC 报告，不加载 ONNX Runtime、OpenCV、CUDA 或 cuDNN。
 
 ## 模型类别
 
@@ -29,7 +42,7 @@
 
 ## 本地开发
 
-环境要求：Java 17+、Maven 3.9+、Node.js 22+、MySQL 8.0+，推荐最新版 Chrome 或 Edge。首次运行前依次执行 `mysql/init/01-init-schema.sql` 和 `mysql/init/02-seed-data.sql`。
+环境要求：Java 17+、Maven 3.9+、Node.js 22+、MySQL 8.0+，推荐使用支持 WebGPU 的 Chrome 或 Edge。首次运行前依次执行 `mysql/init/01-init-schema.sql` 和 `mysql/init/02-seed-data.sql`，创建并初始化 `ruikang_fabric_qc` 数据库。
 
 启动后端：
 
@@ -40,7 +53,7 @@ $env:MYSQL_PASSWORD="<本机 MySQL 密码>"
 mvn spring-boot:run
 ```
 
-后端默认连接 `localhost:3306/ruikang_fabric_qc`，地址为 `http://localhost:8081`。默认账号为 `admin / admin123`，可通过 `QC_ADMIN_USERNAME` 和 `QC_ADMIN_PASSWORD` 覆盖。
+后端默认连接 `localhost:3306/ruikang_fabric_qc`，地址为 `http://localhost:8081`。本地默认账号为 `admin / admin123`，可通过 `QC_ADMIN_USERNAME` 和 `QC_ADMIN_PASSWORD` 覆盖；正式环境应设置强密码。
 
 启动前端：
 
@@ -50,14 +63,18 @@ npm ci
 npm run dev
 ```
 
-前端地址为 `http://localhost:5173`。Vite 将 `/api` 代理到后端，并为多线程 WASM 提供跨源隔离响应头。第一次质检会下载约 38 MB 的模型并预热；浏览器缓存生效后不会在每次操作时重新下载。
+前端地址为 `http://localhost:5173`。Vite 将 `/api` 代理到后端，并提供跨源隔离响应头。第一次质检需要下载约 38 MB 的模型并预热；后续是否重新下载取决于浏览器缓存和模型版本。
 
 ## 运行方式
 
-- 图片质检：浏览器逐张推理、绘制结果图，再一次性提交原图、结果图、检测框和耗时。
+- 图片质检：浏览器逐张推理、绘制结果图，每处理最多 4 张图片后分批提交原图、结果图、检测框和耗时。
 - 实时质检：摄像头预览直接显示，Worker 以单帧背压方式推理；正常帧不上传，每秒同步一次指标，连续命中后才提交证据。
-- 执行策略：优先 WebGPU，GPU 不可用或初始化失败时自动回退多线程 WASM。
+- 执行策略：优先尝试 WebGPU，GPU 不可用或初始化失败时回退 WASM。跨源隔离可用时 WASM 使用多线程，否则使用单线程。当前代码并未固定使用 CPU。
 - 模型一致性：浏览器下载后校验 SHA-256，后端接收结果时再次校验模型版本、类别和坐标范围。
+
+目标推理帧率可设置到 60 FPS，但实际帧率取决于摄像头、浏览器和客户端硬件，不等同于目标值。连续命中按是否检测到缺陷计数，不要求每帧为同一类别。
+
+批量选择图片不设固定张数上限，但仍受浏览器内存、单个文件大小及上传请求大小限制。后端默认单文件不超过 20 MB、单次请求不超过 200 MB；Docker 内 Nginx 的请求体上限为 30 MB。
 
 ## 测试与构建
 
@@ -92,6 +109,8 @@ docker compose up -d --build
 - `ruikang-backend`：业务后端，模型只作为静态资产分发，质检文件保存到 `uploads`
 - `ruikang-frontend`：前端静态资源、浏览器推理运行时与容器内反向代理，对宿主机开放 `127.0.0.1:20080`
 
+Compose 为 MySQL、后端和前端分别设置了 700 MB、700 MB 和 128 MB 的内存上限，以及 1、1 和 0.5 个 CPU 的使用上限。
+
 云服务器不需要 NVIDIA GPU、CUDA 或 cuDNN，推理算力来自访问系统的客户端电脑。正式环境必须使用 HTTPS，摄像头和 WebGPU 才能稳定启用。
 
 宿主机可使用 [`deploy-nginx-ruikang.conf`](deploy-nginx-ruikang.conf) 代理到 `127.0.0.1:20080`。数据库初始化脚本只在首次创建 MySQL 数据卷时执行；已有数据库需执行 [`mysql/repair/2026-07-13-browser-inference.sql`](mysql/repair/2026-07-13-browser-inference.sql)。
@@ -103,7 +122,7 @@ docker compose up -d --build
 - `MYSQL_ROOT_PASSWORD`：MySQL root 密码
 - `MYSQL_PASSWORD`：应用数据库账号密码
 - `QC_ADMIN_USERNAME`、`QC_ADMIN_PASSWORD`：系统登录账号与密码
-- `DEEPSEEK_API_KEY`：DeepSeek API Key，留空时使用本地规则生成质量分析
+- `DEEPSEEK_API_KEY`：DeepSeek API Key，留空时使用本地规则生成质量分析；接口调用异常时是否回退由后端配置决定
 - `DEEPSEEK_MODEL`：DeepSeek 模型名称
 
 模型会下载到已登录用户的浏览器，因此该架构不提供模型文件保密能力。客户端检测结果会经过后端业务校验，但不会再由后端执行第二次模型推理。
