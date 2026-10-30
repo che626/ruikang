@@ -3,6 +3,7 @@
 .run/
 .claude/
 .runtime/
+.local/
 
 # Dependencies and build outputs
 frontend/node_modules/

@@ -1,6 +1,7 @@
-﻿<script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from "vue";
+<script setup lang="ts">
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { message } from "ant-design-vue";
+import { DeleteOutlined, EyeOutlined, ReloadOutlined, SearchOutlined } from "@ant-design/icons-vue";
 import {
   clearRecords,
   fetchRecordDetail,
@@ -70,6 +71,9 @@ const clearingRecords = ref(false);
 const searchKeyword = ref("");
 const resultFilter = ref("ALL");
 const drawerOpen = ref(false);
+const showSearch = ref(true);
+const currentPage = ref(1);
+const pageSize = 10;
 
 const displayedRecords = computed(() => {
   return records.value.filter((item) => {
@@ -79,6 +83,10 @@ const displayedRecords = computed(() => {
     return keyMatch && resultMatch && reviewMatch;
   });
 });
+
+const pagedRecords = computed(() => displayedRecords.value.slice((currentPage.value - 1) * pageSize, currentPage.value * pageSize));
+watch([searchKeyword, resultFilter, reviewFilter], () => { currentPage.value = 1; });
+function formatTime(value: string) { return value ? value.replace("T", " ").slice(0, 19) : "—"; }
 
 function doSearch() {
   // displayedRecords computed auto-updates
@@ -479,129 +487,107 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <section class="rp-page">
-    <div class="card rp-filter-bar">
-      <div class="rp-filter-row">
-        <div class="rp-filter-item">
-          <label>记录编号</label>
-          <a-input v-model:value="searchKeyword" placeholder="请输入编号或检测摘要" allow-clear />
-        </div>
-        <div class="rp-filter-item">
-          <label>检测结果</label>
-          <a-select v-model:value="resultFilter" style="width:120px">
-            <a-select-option value="ALL">全部</a-select-option>
-            <a-select-option value="FAIL">不合格</a-select-option>
-            <a-select-option value="PASS">合格</a-select-option>
-          </a-select>
-        </div>
-        <div class="rp-filter-item">
-          <label>复核状态</label>
-          <a-select v-model:value="reviewFilter" style="width:120px">
-            <a-select-option value="ALL">全部</a-select-option>
-            <a-select-option value="PENDING">待复核</a-select-option>
-            <a-select-option value="PASS">通过</a-select-option>
-            <a-select-option value="REJECTED">不通过</a-select-option>
-            <a-select-option value="MISSED">漏报</a-select-option>
-            <a-select-option value="FALSE_ALARM">误报</a-select-option>
-          </a-select>
-        </div>
-        <div class="rp-filter-actions">
-          <a-button type="primary" @click="doSearch">搜索</a-button>
-          <a-button @click="doReset">重置</a-button>
-        </div>
-      </div>
+  <section class="records-page">
+    <div v-if="showSearch" class="records-search">
+      <a-form layout="inline" @finish="doSearch">
+        <a-form-item label="记录编号" name="keyword">
+          <a-input v-model:value="searchKeyword" allow-clear placeholder="请输入编号或检测摘要" class="keyword-input" />
+        </a-form-item>
+        <a-form-item label="检测结果" name="resultJudge">
+          <a-select v-model:value="resultFilter" placeholder="全部" class="filter-select" :options="[{ label: '全部', value: 'ALL' }, { label: '合格', value: 'PASS' }, { label: '不合格', value: 'FAIL' }]" />
+        </a-form-item>
+        <a-form-item label="复核状态" name="reviewStatus">
+          <a-select v-model:value="reviewFilter" placeholder="全部" class="filter-select" :options="filterOptions" />
+        </a-form-item>
+        <a-form-item class="query-actions">
+          <a-button type="primary" html-type="submit"><SearchOutlined />搜索</a-button>
+          <a-button @click="doReset"><ReloadOutlined />重置</a-button>
+        </a-form-item>
+      </a-form>
     </div>
 
-    <div class="card rp-table-card">
-      <div class="rp-table-head">
-        <span class="rp-table-title">质检记录</span>
-        <div class="rp-table-actions">
-          <a-popconfirm title="确定清空全部质检记录吗？" ok-text="清空" cancel-text="取消" :disabled="records.length === 0" @confirm="clearAllRecords">
-            <a-button danger size="small" :disabled="records.length === 0" :loading="clearingRecords">清空记录</a-button>
+    <article class="records-list">
+      <div class="records-toolbar">
+        <h3>质检记录</h3>
+        <div class="toolbar-actions">
+          <a-popconfirm title="确认清空全部质检记录？" ok-text="清空" cancel-text="取消" @confirm="clearAllRecords">
+            <a-button danger :disabled="records.length === 0" :loading="clearingRecords"><DeleteOutlined />清空记录</a-button>
           </a-popconfirm>
-          <a-button size="small" @click="loadRecords()">刷新</a-button>
+          <a-tooltip :title="showSearch ? '收起查询' : '展开查询'">
+            <a-button shape="circle" :aria-label="showSearch ? '收起查询' : '展开查询'" @click="showSearch = !showSearch"><SearchOutlined /></a-button>
+          </a-tooltip>
+          <a-tooltip title="刷新列表">
+            <a-button shape="circle" aria-label="刷新列表" :loading="loadingRecords" @click="loadRecords()"><ReloadOutlined /></a-button>
+          </a-tooltip>
         </div>
       </div>
-      <a-spin :spinning="loadingRecords">
-        <a-table
-          :data-source="displayedRecords"
-          row-key="recordNo"
-          :pagination="{ pageSize: 10, showTotal: (total) => '共 ' + total + ' 条记录', showQuickJumper: true }"
-          size="middle"
-          :locale="{ emptyText: '暂无质检记录' }"
-        >
-          <a-table-column title="序号" key="index" width="60px">
-            <template #default="{ index }">{{ index + 1 }}</template>
-          </a-table-column>
-          <a-table-column title="记录编号" key="recordNo">
-            <template #default="{ record }">
-              <a class="rp-record-link" @click="openDetail(record.recordNo)">{{ record.recordNo }}</a>
-            </template>
-          </a-table-column>
-          <a-table-column title="检测方式" data-index="inspectType" key="inspectType" width="100px" />
-          <a-table-column title="检测结果" key="resultJudge" width="90px">
-            <template #default="{ record }">
-              <span :class="['rp-badge', record.resultJudge === 'PASS' ? 'rp-badge-pass' : 'rp-badge-fail']">
-                {{ record.resultJudge === 'PASS' ? '合格' : '不合格' }}
-              </span>
-            </template>
-          </a-table-column>
-          <a-table-column title="缺陷数量" data-index="defectCount" key="defectCount" width="80px" />
-          <a-table-column title="复核状态" key="reviewStatus" width="90px">
-            <template #default="{ record }">
-              <span :class="['rp-review-tag', reviewTone(record.reviewStatus)]">{{ reviewText(record.reviewStatus) }}</span>
-            </template>
-          </a-table-column>
-          <a-table-column title="检测摘要" key="summary">
-            <template #default="{ record }">
-              <span class="rp-summary">{{ record.summary ?? '--' }}</span>
-            </template>
-          </a-table-column>
-          <a-table-column title="检测时间" key="inspectTime" width="160px">
-            <template #default="{ record }">{{ formatInspectTime(record.inspectTime) }}</template>
-          </a-table-column>
-          <a-table-column title="操作" key="action" width="80px">
-            <template #default="{ record }">
-              <a class="rp-view-link" @click="openDetail(record.recordNo)">查看</a>
-            </template>
-          </a-table-column>
-        </a-table>
-      </a-spin>
-    </div>
 
-    <a-drawer v-model:open="drawerOpen" title="记录详情" placement="right" width="600" :destroy-on-close="true">
+      <a-table :data-source="pagedRecords" :loading="loadingRecords" :pagination="false" row-key="recordNo" size="middle" :scroll="{ x: 1030 }" :locale="{ emptyText: records.length ? '没有符合查询条件的记录' : '暂无质检记录' }">
+        <a-table-column title="序号" key="index" :width="64" align="center">
+          <template #default="{ index }">{{ (currentPage - 1) * pageSize + index + 1 }}</template>
+        </a-table-column>
+        <a-table-column title="记录编号" data-index="recordNo" key="recordNo" :width="215">
+          <template #default="{ record }"><a-button type="link" class="record-link" @click="openDetail(record.recordNo)">{{ record.recordNo }}</a-button></template>
+        </a-table-column>
+        <a-table-column title="检测方式" key="inspectType" :width="110">
+          <template #default="{ record }">{{ inspectTypeText(record.inspectType) }}</template>
+        </a-table-column>
+        <a-table-column title="检测结果" key="resultJudge" :width="100" align="center">
+          <template #default="{ record }"><a-tag :color="record.resultJudge === 'PASS' ? 'success' : 'error'">{{ record.resultJudge === "PASS" ? "合格" : record.resultJudge === "FAIL" ? "不合格" : record.resultJudge }}</a-tag></template>
+        </a-table-column>
+        <a-table-column title="缺陷数量" data-index="defectCount" key="defectCount" :width="100" align="center" />
+        <a-table-column title="复核状态" key="reviewStatus" :width="105" align="center">
+          <template #default="{ record }"><a-tag :color="record.reviewStatus === 'FALSE_ALARM' ? 'warning' : record.reviewStatus === 'PENDING' ? 'default' : 'processing'">{{ reviewText(record.reviewStatus) }}</a-tag></template>
+        </a-table-column>
+        <a-table-column title="检测摘要" data-index="resultSummary" key="resultSummary" :ellipsis="true" />
+        <a-table-column title="检测时间" key="inspectTime" :width="180">
+          <template #default="{ record }">{{ formatTime(record.inspectTime) }}</template>
+        </a-table-column>
+        <a-table-column title="操作" key="actions" :width="100" align="center" fixed="right">
+          <template #default="{ record }"><a-button class="view-action" type="link" size="small" @click="openDetail(record.recordNo)"><EyeOutlined />查看</a-button></template>
+        </a-table-column>
+      </a-table>
+
+      <div class="records-pagination">
+        <a-pagination v-model:current="currentPage" :total="displayedRecords.length" :page-size="pageSize" :show-size-changer="false" show-quick-jumper :show-total="(total: number) => `共 ${total} 条记录`" />
+      </div>
+    </article>
+
+    <a-drawer v-model:open="drawerOpen" title="质检记录详情" :width="760" class="record-detail-drawer">
       <a-spin :spinning="loadingDetail">
         <template v-if="currentDetail">
-          <div class="rp-detail-badges">
-            <em :class="['machine-badge', currentDetail.resultJudge === 'PASS' ? 'is-pass' : 'is-fail']">
-              {{ currentDetail.resultJudge === 'PASS' ? '机器合格' : '机器缺陷' }}
-            </em>
-            <em :class="['review-badge', reviewTone(currentDetail.reviewStatus)]">
-              人工：{{ currentReviewText }}
-            </em>
+          <a-descriptions bordered size="small" :column="2" class="record-descriptions">
+            <a-descriptions-item label="记录编号" :span="2">{{ currentDetail.recordNo }}</a-descriptions-item>
+            <a-descriptions-item label="检测方式">{{ inspectTypeText(currentDetail.inspectType) }}</a-descriptions-item>
+            <a-descriptions-item label="检测时间">{{ formatTime(currentDetail.inspectTime) }}</a-descriptions-item>
+            <a-descriptions-item label="检测结果"><a-tag :color="currentDetail.resultJudge === 'PASS' ? 'success' : 'error'">{{ currentDetail.resultJudge === "PASS" ? "合格" : "不合格" }}</a-tag></a-descriptions-item>
+            <a-descriptions-item label="复核状态">{{ reviewText(currentDetail.reviewStatus) }}</a-descriptions-item>
+            <a-descriptions-item label="缺陷数量">{{ currentDetail.defectCount }}</a-descriptions-item>
+            <a-descriptions-item label="置信度">{{ currentDetail.confidenceScore === null ? "—" : currentDetail.confidenceScore.toFixed(3) }}</a-descriptions-item>
+            <a-descriptions-item v-if="currentDetail.reviewRemark" label="复核备注" :span="2">{{ currentDetail.reviewRemark }}</a-descriptions-item>
+          </a-descriptions>
+
+          <h4 class="detail-section-title">检测图像</h4>
+          <div class="record-image-compare">
+            <div class="record-preview">
+              <div class="preview-label">原图</div>
+              <img v-if="currentDetail.sourceImagePath" :src="filePreviewUrl(currentDetail.sourceImagePath)" alt="质检原图" />
+              <div v-else class="preview-empty">暂无原图</div>
+            </div>
+            <div class="record-preview">
+              <div class="preview-label">结果图</div>
+              <img v-if="currentDetail.resultImagePath" :src="filePreviewUrl(currentDetail.resultImagePath)" alt="质检结果图" />
+              <div v-else class="preview-empty">暂无结果图</div>
+            </div>
           </div>
-          <div class="records-image-compare" style="margin:16px 0">
-            <figure class="records-preview">
-              <figcaption>原图</figcaption>
-              <div class="records-preview-stage">
-                <img v-if="currentDetail.sourceImagePath" :src="filePreviewUrl(currentDetail.sourceImagePath)" alt="质检原图" />
-                <span v-else>未保存原图</span>
-              </div>
-            </figure>
-            <figure class="records-preview">
-              <figcaption>结果图</figcaption>
-              <div class="records-preview-stage">
-                <img v-if="currentDetail.resultImagePath" :src="filePreviewUrl(currentDetail.resultImagePath)" alt="质检结果图" />
-                <span v-else>未保存结果图</span>
-              </div>
-            </figure>
-          </div>
-          <div class="records-summary">
-            <div><span>质检类型</span><strong>{{ currentDetail.inspectType }}</strong></div>
-            <div><span>模型结论</span><strong>{{ currentDetail.resultJudge }}</strong></div>
-            <div><span>缺陷数量</span><strong>{{ currentDetail.defectCount }}</strong></div>
-            <div><span>最高置信度</span><strong>{{ currentDetail.confidenceScore?.toFixed(3) ?? '-' }}</strong></div>
-          </div>
+
+          <h4 class="detail-section-title">缺陷明细</h4>
+          <a-table :pagination="false" size="small" :data-source="currentDetail.detections" :row-key="(row: RecordDetail['detections'][number]) => `${row.defectCode}-${row.x1}-${row.y1}`" :locale="{ emptyText: '无缺陷明细' }">
+            <a-table-column title="缺陷类别" data-index="defectName" key="defectName" />
+            <a-table-column title="置信度" key="confidence"><template #default="{ record }">{{ record.confidence.toFixed(3) }}</template></a-table-column>
+            <a-table-column title="面积" data-index="area" key="area" />
+          </a-table>
+
           <div class="records-review-section" style="margin-top:16px">
             <div class="records-review-copy">
               <span>人工判定</span>
@@ -624,23 +610,59 @@ onBeforeUnmount(() => {
               <a-button type="primary" :disabled="!selectedReview" :loading="submittingReview" @click="submitReview">保存人工判定</a-button>
             </div>
           </div>
-          <a-table
-            class="records-detection-table"
-            :pagination="false"
-            size="small"
-            :data-source="currentDetail.detections"
-            :row-key="(row) => row.defectCode + '-' + row.x1 + '-' + row.y1"
-            :locale="{ emptyText: '该记录没有检测框数据' }"
-          >
-            <a-table-column title="类别" data-index="defectName" key="defectName" />
-            <a-table-column title="置信度" key="confidence">
-              <template #default="{ record: r }">{{ r.confidence.toFixed(3) }}</template>
-            </a-table-column>
-            <a-table-column title="面积" data-index="area" key="area" />
-          </a-table>
+
+          <div class="record-review-actions"><a-button @click="drawerOpen = false">关闭</a-button></div>
         </template>
-        <div v-else class="empty-card" style="min-height:200px">加载中...</div>
+        <a-empty v-else-if="!loadingDetail" description="暂无记录详情" />
       </a-spin>
     </a-drawer>
   </section>
 </template>
+
+<style scoped>
+.records-page { display: flex; flex-direction: column; gap: 12px; color: #606266; font-size: 14px; }
+.records-search, .records-list { background: #fff; border: 1px solid #e6ebf5; border-radius: 4px; }
+.records-search { padding: 20px 20px 6px; }
+.records-search :deep(.ant-form-item) { margin-bottom: 14px; margin-right: 24px; }
+.records-search :deep(.ant-form-item-label > label) { color: #606266; font-size: 14px; }
+.keyword-input { width: 220px; }
+.filter-select { width: 135px; }
+.query-actions :deep(.ant-form-item-control-input-content) { display: flex; gap: 10px; }
+.records-list { padding: 0 20px; }
+.records-toolbar { display: flex; align-items: center; justify-content: space-between; min-height: 66px; gap: 16px; }
+.records-toolbar h3 { margin: 0; font-size: 15px; font-weight: 600; color: #303133; }
+.toolbar-actions { display: flex; align-items: center; gap: 10px; }
+.toolbar-actions :deep(.ant-btn-circle) { min-width: 32px; width: 32px; height: 32px; color: #606266; }
+.records-list :deep(.ant-table-thead > tr > th) { background: #f8f8f9; color: #606266; font-weight: 600; font-size: 14px; padding: 12px 10px; }
+.records-list :deep(.ant-table-tbody > tr > td) { padding: 13px 10px; color: #606266; font-size: 14px; }
+.records-list :deep(.ant-table-tbody > tr:hover > td) { background: #f5f7fa; }
+.records-list :deep(.ant-tag) { margin: 0; border-radius: 3px; font-size: 12px; }
+.record-link, .view-action { color: #409eff; }
+.record-link { cursor: pointer; padding: 0; height: auto; }
+.records-pagination { display: flex; justify-content: flex-end; padding: 18px 0; }
+.record-descriptions { margin-bottom: 20px; }
+.detail-section-title { margin: 22px 0 12px; color: #303133; font-weight: 600; font-size: 14px; }
+.record-image-compare { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.record-preview { overflow: hidden; border: 1px solid #ebeef5; border-radius: 4px; background: #fafafa; }
+.preview-label { padding: 9px 12px; border-bottom: 1px solid #ebeef5; color: #606266; background: #fff; }
+.record-preview img { display: block; width: 100%; height: 225px; object-fit: contain; }
+.preview-empty { display: grid; place-items: center; height: 225px; color: #909399; }
+.record-review-actions { display: flex; justify-content: flex-end; gap: 10px; padding-top: 24px; }
+@media (max-width: 800px) {
+  .records-search { padding: 16px 16px 2px; }
+  .records-search :deep(.ant-form-item) { margin-right: 16px; }
+  .records-list { padding: 0 14px; }
+  .records-toolbar { flex-wrap: wrap; padding: 14px 0; }
+  .records-pagination { overflow-x: auto; justify-content: flex-start; }
+}
+.records-review-section { margin-top: 20px; padding-top: 16px; border-top: 1px solid #ebeef5; }
+.records-review-copy { display: grid; gap: 5px; margin-bottom: 12px; }
+.records-review-copy > span { font-size: 14px; font-weight: 500; color: #303133; }
+.records-review-copy > strong { font-size: 12px; font-weight: 400; color: #909399; }
+.review-option-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.review-option { display: grid; gap: 4px; text-align: left; padding: 10px 12px; border: 1px solid #dcdfe6; border-radius: 4px; background: #fff; color: #606266; }
+.review-option strong { font-size: 13px; font-weight: 500; }
+.review-option span { font-size: 12px; color: #909399; }
+.review-option.active { border-color: #409eff; background: #ecf5ff; color: #409eff; }
+.review-submit-row { display: flex; gap: 8px; }
+</style>

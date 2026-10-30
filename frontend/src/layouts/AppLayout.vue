@@ -1,188 +1,247 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch, type Component } from "vue";
 import { useRoute, useRouter } from "vue-router";
+import { message } from "ant-design-vue";
+import {
+  HomeOutlined, VideoCameraOutlined, PictureOutlined, FileSearchOutlined,
+  BarChartOutlined, TagsOutlined, DeploymentUnitOutlined, SettingOutlined,
+  MenuFoldOutlined, MenuUnfoldOutlined, SearchOutlined, ReloadOutlined,
+  FullscreenOutlined, FullscreenExitOutlined, DownOutlined, RightOutlined,
+  CloseOutlined, LogoutOutlined, UserOutlined,
+} from "@ant-design/icons-vue";
 import { fetchRealtimeStatus, type RealtimeStatus } from "@/api/realtime";
+import { useRealtimeStream } from "@/composables/useRealtimeStream";
+import http from "@/api/http";
+import { TOKEN_KEY } from "@/auth/session";
 
-type MenuItem = {
-  title: string;
-  path: string;
-  icon: string;
-};
-
+type MenuItem = { title: string; path: string; icon: Component };
 const router = useRouter();
 const route = useRoute();
+const stream = useRealtimeStream();
 
-const primaryMenu = [
-  { title: "首页看板", path: "/dashboard", icon: `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1" y="1" width="6" height="6" rx="1"/><rect x="9" y="1" width="6" height="6" rx="1"/><rect x="1" y="9" width="6" height="6" rx="1"/><rect x="9" y="9" width="6" height="6" rx="1"/></svg>` },
-  { title: "实时监控", path: "/realtime", icon: `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1" y="3" width="14" height="9" rx="1.5"/><path d="M5 12v2M11 12v2M3 14h10"/><circle cx="8" cy="7.5" r="2" fill="none"/></svg>` },
-  { title: "图片质检", path: "/image", icon: `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1" y="1" width="14" height="14" rx="1.5"/><path d="M1 11l4-4 3 3 2-2 5 5"/><circle cx="11" cy="5" r="1.5" fill="currentColor" stroke="none"/></svg>` },
-  { title: "质检记录", path: "/records", icon: `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 1h10a1 1 0 011 1v12a1 1 0 01-1 1H3a1 1 0 01-1-1V2a1 1 0 011-1z"/><path d="M5 5h6M5 8h6M5 11h3"/></svg>` },
-  { title: "缺陷分析", path: "/defects", icon: `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 12l3-4 3 2 3-6 3 4"/><path d="M1 14h14"/></svg>` },
+const primaryMenu: MenuItem[] = [
+  { title: "首页看板", path: "/dashboard", icon: HomeOutlined },
+  { title: "实时质检", path: "/realtime", icon: VideoCameraOutlined },
+  { title: "图片质检", path: "/image", icon: PictureOutlined },
+  { title: "质检记录", path: "/records", icon: FileSearchOutlined },
+  { title: "缺陷分析", path: "/defects", icon: BarChartOutlined },
 ];
-
-const configMenu = [
-  { title: "缺陷类型", path: "/config/defect", icon: `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><polygon points="8,2 14,6 14,10 8,14 2,10 2,6"/><circle cx="8" cy="8" r="2"/></svg>` },
-  { title: "模型管理", path: "/config/model", icon: `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="3" r="2"/><circle cx="3" cy="13" r="2"/><circle cx="13" cy="13" r="2"/><path d="M8 5v3M8 8l-3 3M8 8l3 3"/></svg>` },
-  { title: "摄像头配置", path: "/config/camera", icon: `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1" y="4" width="10" height="8" rx="1.5"/><path d="M11 7l4-2v6l-4-2"/><circle cx="6" cy="8" r="2"/></svg>` },
+const configMenu: MenuItem[] = [
+  { title: "缺陷类型", path: "/config/defect", icon: TagsOutlined },
+  { title: "模型管理", path: "/config/model", icon: DeploymentUnitOutlined },
+  { title: "摄像头配置", path: "/config/camera", icon: VideoCameraOutlined },
 ];
-
-const configMenuOpen = ref(true);
-const clock = ref("--:--:--");
-const currentTitle = computed(() => String(route.meta.title ?? "首页看板"));
-
-const breadcrumbs = computed(() => {
-  const path = route.path;
-  const map: Record<string, string[]> = {
-    "/dashboard": ["首页", "首页看板"],
-    "/realtime": ["首页", "质检管理", "实时质检"],
-    "/image": ["首页", "质检管理", "图片质检"],
-    "/records": ["首页", "质检管理", "质检记录"],
-    "/defects": ["首页", "质检管理", "缺陷分析"],
-    "/config/defect": ["首页", "系统管理", "缺陷类型"],
-    "/config/model": ["首页", "系统管理", "模型管理"],
-    "/config/camera": ["首页", "系统管理", "摄像头配置"],
-  };
-  return map[path] ?? ["首页", currentTitle.value];
-});
-
-const runtime = ref<RealtimeStatus>({
-  cameraName: "Webcam 0",
-  runtimeStatus: "STOPPED",
-  previewFps: 0,
-  inferenceFps: 0,
-  latencyMs: 0,
-  providerStrategy: "尚未连接",
-  modelPath: "models/ruikang.onnx",
-  confidenceThreshold: 0.45,
-  iouThreshold: 0.42,
-  continuousHitFrames: 4,
-  targetInferenceFps: 60,
-  evidenceImageCount: 3,
-});
-
+const allMenu = [...primaryMenu, ...configMenu];
+const collapsed = ref(window.matchMedia("(max-width: 768px)").matches || localStorage.getItem("qc-sidebar-collapsed") === "true");
+const systemExpanded = ref(true);
+const clock = ref("");
+const fullscreen = ref(false);
+const pageRevision = ref(0);
+const refreshBusy = ref(false);
+const searchOpen = ref(false);
+const searchText = ref("");
+const visitedTabs = ref([{ path: "/dashboard", title: "首页看板" }]);
+const tabsNav = ref<HTMLElement | null>(null);
+const runtime = ref<RealtimeStatus | null>(null);
 let clockTimer: number | undefined;
 let runtimeTimer: number | undefined;
+let refreshTimer: number | undefined;
+const narrowScreen = window.matchMedia("(max-width: 768px)");
 
-const systemRunningText = computed(() => {
-  if (runtime.value.runtimeStatus === "RUNNING") return "正常";
-  if (runtime.value.runtimeStatus === "ERROR") return "异常";
-  return "待机";
-});
-const databaseModeText = computed(() => "MySQL");
-
-function isActive(path: string) {
-  return route.path === path || route.path.startsWith(path + "/");
-}
+const currentItem = computed(() => allMenu.find((item) => item.path === route.path));
+const currentTitle = computed(() => currentItem.value?.title ?? String(route.meta.title ?? "首页看板"));
+const currentGroup = computed(() => route.path.startsWith("/config/") ? "系统管理" : "质检管理");
+const cameraRunning = computed(() => runtime.value?.runtimeStatus === "RUNNING");
+const searchResults = computed(() => allMenu.filter((item) => item.title.includes(searchText.value.trim())));
 
 function go(path: string) {
   router.push(path);
+  searchOpen.value = false;
+  if (narrowScreen.matches) collapsed.value = true;
 }
-
+function onScreenChange(event: MediaQueryListEvent) { if (event.matches) collapsed.value = true; }
+function toggleSidebar() {
+  collapsed.value = !collapsed.value;
+  localStorage.setItem("qc-sidebar-collapsed", String(collapsed.value));
+}
+function closeTab(path: string) {
+  const index = visitedTabs.value.findIndex((tab) => tab.path === path);
+  visitedTabs.value = visitedTabs.value.filter((tab) => tab.path !== path);
+  if (route.path === path) go(visitedTabs.value[Math.max(0, index - 1)]?.path ?? "/dashboard");
+}
+function closeOtherTabs() {
+  visitedTabs.value = visitedTabs.value.filter((tab) => tab.path === '/dashboard' || tab.path === route.path);
+}
+async function refreshRuntime() {
+  try { runtime.value = await fetchRealtimeStatus(); } catch { runtime.value = null; }
+}
+function refreshPage() {
+  if (refreshBusy.value) return;
+  pageRevision.value += 1;
+  refreshBusy.value = true;
+  refreshRuntime();
+  refreshTimer = window.setTimeout(() => { refreshBusy.value = false; }, 600);
+}
+async function toggleFullscreen() {
+  try {
+    if (document.fullscreenElement) await document.exitFullscreen();
+    else await document.documentElement.requestFullscreen();
+  } catch { message.info("当前浏览器暂不支持全屏，请使用浏览器全屏功能"); }
+}
+function updateFullscreen() { fullscreen.value = Boolean(document.fullscreenElement); }
 function updateClock() {
   clock.value = new Date().toLocaleTimeString("zh-CN", { hour12: false });
 }
-
-async function refreshRuntime() {
-  try {
-    runtime.value = await fetchRealtimeStatus();
-  } catch {
-    runtime.value = {
-      ...runtime.value,
-      runtimeStatus: "ERROR",
-      previewFps: 0,
-      inferenceFps: 0,
-      latencyMs: 0,
-    };
+async function logout() {
+  if (stream.running.value) await stream.stop();
+  await http.post("/auth/logout");
+  localStorage.removeItem(TOKEN_KEY);
+  router.replace("/login");
+}
+function onKeydown(event: KeyboardEvent) {
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
+    event.preventDefault();
+    searchText.value = "";
+    searchOpen.value = true;
   }
 }
-
-watch(() => route.fullPath, () => updateClock());
+watch(() => route.path, async (path) => {
+  const item = allMenu.find((menu) => menu.path === path);
+  if (item && !visitedTabs.value.some((tab) => tab.path === path)) {
+    visitedTabs.value.push({ path, title: item.title });
+  }
+  if (path.startsWith("/config/")) systemExpanded.value = true;
+  await nextTick();
+  tabsNav.value?.querySelector(".page-tab.active")?.scrollIntoView({ block: "nearest", inline: "nearest" });
+}, { immediate: true });
 
 onMounted(() => {
   updateClock();
   refreshRuntime();
   clockTimer = window.setInterval(updateClock, 1000);
   runtimeTimer = window.setInterval(refreshRuntime, 4000);
+  document.addEventListener("fullscreenchange", updateFullscreen);
+  document.addEventListener("keydown", onKeydown);
+  narrowScreen.addEventListener("change", onScreenChange);
 });
-
 onBeforeUnmount(() => {
   if (clockTimer) window.clearInterval(clockTimer);
   if (runtimeTimer) window.clearInterval(runtimeTimer);
+  if (refreshTimer) window.clearTimeout(refreshTimer);
+  document.removeEventListener("fullscreenchange", updateFullscreen);
+  document.removeEventListener("keydown", onKeydown);
+  narrowScreen.removeEventListener("change", onScreenChange);
 });
 </script>
 
 <template>
-  <div class="bg-grid"></div>
-
-  <div class="app-layout">
+  <div :class="['app-layout', { 'sidebar-collapsed': collapsed }]">
+    <button v-if="!collapsed" class="mobile-sidebar-backdrop" type="button" aria-label="关闭导航菜单" @click="collapsed = true" />
     <aside class="sidebar">
-      <div class="brand sample-brand">
-        <div class="logo sample-logo">R</div>
-        <div class="brand-text">
-          <h1 class="brand-title">  AI 质检平台</h1>
-          <p class="brand-subtitle sample-subtitle">FABRIC INSPECTION</p>
-        </div>
-      </div>
+      <router-link class="brand" to="/dashboard" aria-label="面料质检系统首页">
+        <svg class="brand-mark" width="30" height="30" viewBox="0 0 32 32" fill="none" aria-hidden="true">
+          <path d="M16 2 30 10 16 18 2 10 16 2Z" fill="#409eff" />
+          <path d="m2 16 14 8 14-8v6L16 30 2 22v-6Z" fill="#79bbff" />
+          <path d="m2 10 14 8v6L2 16v-6Z" fill="#337ecc" />
+        </svg>
+        <h1 v-if="!collapsed">面料质检系统</h1>
+      </router-link>
 
-      <div class="menu-label sample-menu-label">主菜单</div>
-      <nav class="menu">
-        <button
-          v-for="item in primaryMenu"
-          :key="item.path"
-          :class="{ active: isActive(item.path) }"
-          @click="go(item.path)"
-        >
-          <span class="menu-icon" v-html="item.icon"></span>
-          <span class="menu-text">{{ item.title }}</span>
-          <span v-if="isActive(item.path)" class="menu-dot"></span>
+      <nav class="sidebar-nav" aria-label="主导航">
+        <div v-if="!collapsed" class="menu-label">质检管理</div>
+        <button v-for="item in primaryMenu" :key="item.path" type="button"
+          :class="['menu-item', { active: route.path === item.path }]"
+          :title="collapsed ? item.title : undefined" :aria-label="item.title" :aria-current="route.path === item.path ? 'page' : undefined"
+          @click="go(item.path)">
+          <component :is="item.icon" class="menu-icon" />
+          <span v-if="!collapsed">{{ item.title }}</span>
         </button>
-      </nav>
-      <div class="menu-label sample-menu-label">系统管理</div>
-      <nav class="menu secondary">
-        <button
-          v-for="item in configMenu"
-          :key="item.path"
-          :class="{ active: isActive(item.path) }"
-          @click="go(item.path)"
-        >
-          <span class="menu-icon" v-html="item.icon"></span>
-          <span class="menu-text">{{ item.title }}</span>
-          <span v-if="isActive(item.path)" class="menu-dot"></span>
+
+        <button type="button" :class="['menu-group', { selected: route.path.startsWith('/config/') }]"
+          :title="collapsed ? '系统管理' : undefined" :aria-expanded="collapsed || systemExpanded"
+          @click="collapsed ? go('/config/defect') : systemExpanded = !systemExpanded">
+          <SettingOutlined class="menu-icon" />
+          <span v-if="!collapsed">系统管理</span>
+          <DownOutlined v-if="!collapsed && systemExpanded" class="group-arrow" />
+          <RightOutlined v-else-if="!collapsed" class="group-arrow" />
         </button>
+        <div v-if="collapsed || systemExpanded" class="submenu">
+          <button v-for="item in configMenu" :key="item.path" type="button"
+            :class="['menu-item', { active: route.path === item.path }]"
+            :title="collapsed ? item.title : undefined" :aria-label="item.title" :aria-current="route.path === item.path ? 'page' : undefined"
+            @click="go(item.path)">
+            <component :is="item.icon" class="menu-icon" />
+            <span v-if="!collapsed">{{ item.title }}</span>
+          </button>
+        </div>
       </nav>
-      <div class="run-card sample-status-card">
-        <div class="sample-status-title">系统状态</div>
-        <div class="status-row">
-          <span>系统运行</span>
-          <strong :class="{ ok: runtime.runtimeStatus === 'RUNNING' }">{{ systemRunningText }}</strong>
-        </div>
-        <div class="status-row">
-          <span>数据库</span>
-          <strong class="ok">{{ databaseModeText }}</strong>
-        </div>
+
+      <div class="sidebar-footer" :title="runtime ? (cameraRunning ? '实时监控中' : '实时监控待机') : '设备状态暂不可用'">
+        <span :class="['status-dot', { running: cameraRunning }]" />
+        <span v-if="!collapsed">{{ runtime ? (cameraRunning ? '实时监控中' : '实时监控待机') : '设备状态暂不可用' }}</span>
       </div>
     </aside>
 
     <main class="main-shell">
-      <header class="topbar sample-topbar">
-        <div class="topbar-left-group">
-          <nav class="breadcrumb">
-            <span v-for="(crumb, idx) in breadcrumbs" :key="idx" class="breadcrumb-item">
-              <span v-if="idx > 0" class="breadcrumb-sep">/</span>
-              <span :class="idx === breadcrumbs.length - 1 ? 'breadcrumb-current' : 'breadcrumb-link'">{{ crumb }}</span>
-            </span>
-          </nav>
-        </div>
-
-        <div class="topbar-right sample-topbar-right">
-          <span class="badge sample-badge ok">● {{ runtime.runtimeStatus === 'RUNNING' ? '在线' : '待机' }}</span>
-          <span class="badge sample-badge">{{ clock }}</span>
+      <header class="topbar">
+        <button class="icon-button collapse-button" type="button" :aria-label="collapsed ? '展开菜单' : '折叠菜单'" @click="toggleSidebar">
+          <MenuUnfoldOutlined v-if="collapsed" /><MenuFoldOutlined v-else />
+        </button>
+        <a-breadcrumb class="header-breadcrumb">
+          <a-breadcrumb-item><router-link to="/dashboard"><HomeOutlined /> <span class="breadcrumb-home">首页</span></router-link></a-breadcrumb-item>
+          <a-breadcrumb-item v-if="route.path !== '/dashboard'">{{ currentGroup }}</a-breadcrumb-item>
+          <a-breadcrumb-item v-if="route.path !== '/dashboard'">{{ currentTitle }}</a-breadcrumb-item>
+        </a-breadcrumb>
+        <div class="topbar-right">
+          <button class="header-search" type="button" aria-label="搜索页面" @click="searchOpen = true; searchText = ''">
+            <SearchOutlined /><span>搜索页面</span><kbd>Ctrl K</kbd>
+          </button>
+          <span class="header-clock">{{ clock }}</span>
+          <a-tooltip title="刷新页面">
+            <button class="icon-button" type="button" aria-label="刷新页面" @click="refreshPage"><ReloadOutlined :spin="refreshBusy" /></button>
+          </a-tooltip>
+          <a-tooltip :title="fullscreen ? '退出全屏' : '全屏显示'">
+            <button class="icon-button fullscreen-button" type="button" :aria-label="fullscreen ? '退出全屏' : '全屏显示'" @click="toggleFullscreen">
+              <FullscreenExitOutlined v-if="fullscreen" /><FullscreenOutlined v-else />
+            </button>
+          </a-tooltip>
+          <a-dropdown :trigger="['click']">
+            <button class="account-button" type="button" aria-label="管理员菜单"><span class="account-avatar"><UserOutlined /></span><span class="account-name">管理员</span><DownOutlined class="account-arrow" /></button>
+            <template #overlay>
+              <a-menu><a-menu-item key="identity" disabled>系统管理员</a-menu-item><a-menu-divider /><a-menu-item key="logout" @click="logout"><LogoutOutlined /> 退出登录</a-menu-item></a-menu>
+            </template>
+          </a-dropdown>
         </div>
       </header>
 
+      <div class="tabs-bar">
+        <nav ref="tabsNav" class="page-tabs" aria-label="已打开页面">
+          <div v-for="tab in visitedTabs" :key="tab.path" :class="['page-tab', { active: route.path === tab.path }]">
+            <button type="button" :aria-current="route.path === tab.path ? 'page' : undefined" @click="go(tab.path)">
+              <HomeOutlined v-if="tab.path === '/dashboard'" /><span v-else class="tab-dot" />{{ tab.title }}
+            </button>
+            <button v-if="tab.path !== '/dashboard'" class="tab-close" type="button" :aria-label="'关闭' + tab.title + '页签'" @click="closeTab(tab.path)"><CloseOutlined /></button>
+          </div>
+        </nav>
+        <a-dropdown :trigger="['click']">
+          <button class="tabs-action icon-button" type="button" aria-label="页签操作"><DownOutlined /></button>
+          <template #overlay>
+            <a-menu><a-menu-item key="closeOthers" @click="closeOtherTabs">关闭其他页签</a-menu-item><a-menu-item key="closeAll" @click="visitedTabs = [{ path: '/dashboard', title: '首页看板' }]; go('/dashboard')">关闭全部页签</a-menu-item></a-menu>
+          </template>
+        </a-dropdown>
+      </div>
+
       <section class="content-shell">
-        <router-view />
+        <router-view :key="route.path + '-' + pageRevision" />
       </section>
     </main>
+
+    <a-modal v-model:open="searchOpen" title="页面搜索" :footer="null" :width="480" :destroy-on-close="true">
+      <a-input v-model:value="searchText" placeholder="输入页面名称" allow-clear autofocus @press-enter="searchResults[0] && go(searchResults[0].path)"><template #prefix><SearchOutlined /></template></a-input>
+      <div class="navigation-search-list">
+        <button v-for="item in searchResults" :key="item.path" type="button" @click="go(item.path)"><component :is="item.icon" /><span>{{ item.title }}</span><RightOutlined /></button>
+        <a-empty v-if="!searchResults.length" description="没有匹配的页面" />
+      </div>
+    </a-modal>
   </div>
 </template>

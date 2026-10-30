@@ -561,11 +561,11 @@ async function start(externalVideo?: HTMLVideoElement | null) {
   runGeneration += 1;
   const generation = runGeneration;
   try {
-    modelLoadingStage.value = "正在加载浏览器模型";
+    modelLoadingStage.value = "正在加载模型";
     const inferenceState = await browserInferenceClient.ensureReady(true);
     activeManifest = inferenceState.manifest;
     activeReadyState = inferenceState.ready;
-    modelLoadingStage.value = `模型已就绪（${inferenceState.ready.providerStrategy}）`;
+    modelLoadingStage.value = "模型已就绪";
 
     ensureCaptureVideo(externalVideo);
     await ensureWebcam(externalVideo);

@@ -9,7 +9,7 @@ export default defineConfig({
     viteStaticCopy({
       targets: [
         {
-          src: "node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.asyncify.{mjs,wasm}",
+          src: "node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.{asyncify,jsep}.{mjs,wasm}",
           dest: "ort",
         },
       ],

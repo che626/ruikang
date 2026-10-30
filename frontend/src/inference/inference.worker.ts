@@ -2,6 +2,7 @@
 
 import * as ort from "onnxruntime-web/webgpu";
 import { postprocessDetectedOutput } from "./postprocess";
+import { selectInferenceSession } from "./sessionSelection";
 import type {
   BrowserInferenceManifest,
   BrowserInferenceResult,
@@ -22,6 +23,7 @@ let requestTail: Promise<void> = Promise.resolve();
 
 ort.env.wasm.wasmPaths = "/ort/";
 ort.env.wasm.proxy = false;
+ort.env.webgpu.powerPreference = "high-performance";
 ort.env.wasm.numThreads = worker.crossOriginIsolated
   ? Math.min(4, Math.max(1, Math.floor((worker.navigator.hardwareConcurrency || 2) / 2)))
   : 1;
@@ -89,25 +91,28 @@ async function initialize(nextManifest: BrowserInferenceManifest) {
   }
 
   const initializationStartedAt = performance.now();
-  // Force WASM (CPU) execution — skip WebGPU probe
-  session = await createWasmSession(modelBytes);
-  providerStrategy = "WASM";
-  const initializationTimeMs = Math.round(performance.now() - initializationStartedAt);
-
-  const warmupStartedAt = performance.now();
-  const warmupTensor = new ort.Tensor(
-    "float32",
-    new Float32Array(3 * nextManifest.inputWidth * nextManifest.inputHeight),
-    [1, 3, nextManifest.inputHeight, nextManifest.inputWidth],
-  );
-  let warmupOutputs: Record<string, ort.Tensor> | undefined;
-  try {
-    warmupOutputs = await session.run({ [nextManifest.inputName]: warmupTensor });
-  } finally {
-    warmupTensor.dispose();
-    disposeTensorMap(warmupOutputs);
+  let warmupTimeMs = 0;
+  const selected = await selectInferenceSession({
+    canUseWebGpu: hasWebGpuAdapter,
+    createWebGpu: () => ort.InferenceSession.create(modelBytes, {
+      executionProviders: ["webgpu"],
+      graphOptimizationLevel: "all",
+    }),
+    createWasm: () => createWasmSession(modelBytes),
+    warmup: async (candidate) => {
+      const startedAt = performance.now();
+      await warmupSession(candidate, nextManifest);
+      warmupTimeMs = Math.round(performance.now() - startedAt);
+    },
+  });
+  session = selected.session;
+  providerStrategy = selected.providerStrategy;
+  const initializationTimeMs = Math.max(0, Math.round(performance.now() - initializationStartedAt) - warmupTimeMs);
+  if (selected.fallbackReason) {
+    console.warn("[Inference] WebGPU 不可用，已回退 CPU/WASM：", selected.fallbackReason);
+  } else {
+    console.info("[Inference] WebGPU 会话及模型预热成功", ort.env.webgpu.adapter?.info);
   }
-  const warmupTimeMs = Math.round(performance.now() - warmupStartedAt);
 
   return {
     providerStrategy,
@@ -117,14 +122,29 @@ async function initialize(nextManifest: BrowserInferenceManifest) {
   };
 }
 
+async function warmupSession(candidate: ort.InferenceSession, nextManifest: BrowserInferenceManifest) {
+  const warmupTensor = new ort.Tensor(
+    "float32",
+    new Float32Array(3 * nextManifest.inputWidth * nextManifest.inputHeight),
+    [1, 3, nextManifest.inputHeight, nextManifest.inputWidth],
+  );
+  let warmupOutputs: Record<string, ort.Tensor> | undefined;
+  try {
+    warmupOutputs = await candidate.run({ [nextManifest.inputName]: warmupTensor });
+  } finally {
+    warmupTensor.dispose();
+    disposeTensorMap(warmupOutputs);
+  }
+}
+
 async function hasWebGpuAdapter() {
   const navigatorWithGpu = worker.navigator as WorkerNavigator & {
-    gpu?: { requestAdapter: () => Promise<unknown | null> };
+    gpu?: { requestAdapter: (options?: { powerPreference: "high-performance" }) => Promise<unknown | null> };
   };
   if (!navigatorWithGpu.gpu) return false;
   try {
     const adapter = await Promise.race([
-      navigatorWithGpu.gpu.requestAdapter(),
+      navigatorWithGpu.gpu.requestAdapter({ powerPreference: "high-performance" }),
       new Promise<null>((resolve) => worker.setTimeout(() => resolve(null), 1_500)),
     ]);
     return Boolean(adapter);
